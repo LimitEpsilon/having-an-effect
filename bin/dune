@@ -1,0 +1,6 @@
+(executable
+ (public_name EDSLNG)
+ (name main)
+ (flags
+   (:standard -w -8))
+ (libraries EDSLNG))
