@@ -19,15 +19,17 @@ let (VInt 11) =
   in
   eval_v res
 
-let (Failure _) =
+let "Bang!" =
   let res =
     int 1
     + cond (eq (int 1 + int 2) (int 4)) (int 10) (fun _ -> failwith "Bang!")
   in
   try
     eval_v res |> ignore;
-    assert false
-  with exn -> exn
+    "No"
+  with
+  | Failure s -> s
+  | _ -> "No"
 
 let (VInt 10) =
   let module M = TSt in
