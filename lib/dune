@@ -1,3 +1,5 @@
 (library
  (name EDSLNG)
- (libraries core))
+ (preprocess
+  (pps ppx_jane))
+ (libraries core ppx_jane))

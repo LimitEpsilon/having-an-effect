@@ -1,4 +1,6 @@
 open EDSLNG
+open Debug
+open Core
 open Edslng
 
 let () = debug.set false
@@ -62,4 +64,70 @@ let (VInt 122) =
   let module M = TLamSt in
   eval_v M.res
 
-let _ = print_endline "All Done"
+(*let _ = print_endline "All Done"*)
+
+let _ =
+  debug.set true;
+  let open Gpu in
+  let add_addr = Addr.one in
+  let halt_addr = Addr.succ add_addr in
+  let prog : (Addr.t * inst) list = [ (add_addr, Add); (halt_addr, Halt) ] in
+  let thread =
+    Mk_arch
+      {
+        st = Reg_st (1, RS1);
+        upd = Reg_upd None;
+        children =
+          Arch
+            [
+              Mk_arch
+                {
+                  st = Reg_st (1, RS2);
+                  upd = Reg_upd None;
+                  children =
+                    Arch
+                      [
+                        Mk_arch
+                          {
+                            st = Reg_st (0, RD);
+                            upd = Reg_upd None;
+                            children =
+                              Arch
+                                [
+                                  Mk_arch
+                                    {
+                                      st =
+                                        Reg_st
+                                          ( { pc_tgt = add_addr; pc_en = true },
+                                            PC );
+                                      upd = Reg_upd None;
+                                      children = Exec [ Initial cycle ];
+                                    };
+                                ];
+                          };
+                      ];
+                };
+            ];
+      }
+  in
+  let arch =
+    Mk_arch
+      {
+        st = Mem_st (prog, Inst);
+        upd =
+          Mem_upd
+            { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one };
+        children =
+          Arch
+            [
+              Mk_arch
+                {
+                  st = Reg_st (Addr.one, PC_warp);
+                  upd = PC_upd [];
+                  children = Arch [ thread; thread ];
+                };
+            ];
+      }
+  in
+  Sexp.pp_hum Stdlib.Format.std_formatter (sexp_of_arch (run arch));
+  Out_channel.newline stdout

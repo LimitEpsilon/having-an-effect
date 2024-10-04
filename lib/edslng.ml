@@ -1,16 +1,9 @@
 (** Adapted from https://okmij.org/ftp/Computation/having-effect.html *)
 
+open Debug
 open Core
 open Effect
 open Effect.Deep
-
-type 'a get_set = { get : unit -> 'a; set : 'a -> unit }
-
-(*module X (Y : Tuple.Comparable_sexpable) = Core.Tuple.Comparable (Int) (Y)*)
-
-let debug =
-  let b = ref false in
-  { get = (fun () -> !b); set = (fun debug' -> b := debug') }
 
 type v = ..
 type 'dom tag = ..
@@ -344,10 +337,10 @@ let eval_h : ('a, 'a) handler =
 let eval (type dom) (tag : dom tag) (e : dom tag -> dom) : dom =
   let env = [] in
   let state = VInt 0 in
-  fst
-  @@ match_with
-       (fun x ->
-         match_with (fun x -> match_with e x env_h ~env) x state_h ~state)
-       tag eval_h
+  let comp = e in
+  let comp x = match_with comp x eval_h in
+  let comp x = match_with comp x state_h ~state in
+  let comp x = match_with comp x env_h ~env in
+  fst (comp tag)
 
 let eval_v = eval V

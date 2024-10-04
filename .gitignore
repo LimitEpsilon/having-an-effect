@@ -86,4 +86,7 @@ tags
 [._]*.un~
 
 # End of https://www.toptal.com/developers/gitignore/api/ocaml,vim,macos
-n
+
+# general
+*.log
+
