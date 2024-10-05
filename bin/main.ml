@@ -68,28 +68,28 @@ let (VInt 122) =
 
 let _ =
   debug.set true;
-  let open Gpu in
+  let open Domains in
   let add_addr = Addr.one in
   let halt_addr = Addr.succ add_addr in
   let prog : (Addr.t * inst) list = [ (add_addr, Add); (halt_addr, Halt) ] in
   let thread =
     Mk_arch
       {
-        st = Reg_st (1, RS1);
+        st = Reg_st { reg_st = 1; reg_tag = RS1 };
         upd = Reg_upd None;
         children =
           Arch
             [
               Mk_arch
                 {
-                  st = Reg_st (1, RS2);
+                  st = Reg_st { reg_st = 1; reg_tag = RS2 };
                   upd = Reg_upd None;
                   children =
                     Arch
                       [
                         Mk_arch
                           {
-                            st = Reg_st (0, RD);
+                            st = Reg_st { reg_st = 1; reg_tag = RD };
                             upd = Reg_upd None;
                             children =
                               Arch
@@ -98,10 +98,9 @@ let _ =
                                     {
                                       st =
                                         Reg_st
-                                          ( { pc_tgt = add_addr; pc_en = true },
-                                            PC );
+                                          { reg_st = add_addr; reg_tag = PC };
                                       upd = Reg_upd None;
-                                      children = Exec [ Initial cycle ];
+                                      children = Exec [ Initial Gpu.cycle ];
                                     };
                                 ];
                           };
@@ -113,7 +112,7 @@ let _ =
   let arch =
     Mk_arch
       {
-        st = Mem_st (prog, Inst);
+        st = Mem_st { mem_st = prog; mem_tag = Imem };
         upd =
           Mem_upd
             { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one };
@@ -122,12 +121,13 @@ let _ =
             [
               Mk_arch
                 {
-                  st = Reg_st (Addr.one, PC_warp);
-                  upd = PC_upd [];
+                  st = Warp_st { warp_pc = add_addr; decode_req = None };
+                  upd = Warp_upd { voted = []; nth_election = Ticket.one };
                   children = Arch [ thread; thread ];
                 };
             ];
       }
   in
-  Sexp.pp_hum Stdlib.Format.std_formatter (sexp_of_arch (run arch));
-  Out_channel.newline stdout
+  let final = Sexp.to_string_hum (sexp_of_arch (Interp.run arch)) in
+  print_endline "-------- Final state --------";
+  print_endline final
