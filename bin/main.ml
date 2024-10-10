@@ -29,22 +29,19 @@ let _ =
       ]
   in
   let imem_base = 0 in
-  let prog : (Addr.t * inst) list =
+  (* (RS2) = 1 *)
+  let loop offset : (Addr.t * inst) list =
     Addr.
       [
-        (of_int Int.(imem_base + 0), Ld (RS2, of_int 0, RS1));
-        (of_int Int.(imem_base + 1), Add (RD, RS2, RS2));
-        (of_int Int.(imem_base + 2), St (of_int 100, RS1, RD));
-        (of_int Int.(imem_base + 3), Ld (RS2, of_int 1, RS1));
-        (of_int Int.(imem_base + 4), Add (RD, RS2, RS2));
-        (of_int Int.(imem_base + 5), St (of_int 101, RS1, RD));
-        (of_int Int.(imem_base + 6), Ld (RS2, of_int 2, RS1));
-        (of_int Int.(imem_base + 7), Add (RD, RS2, RS2));
-        (of_int Int.(imem_base + 8), St (of_int 102, RS1, RD));
-        (of_int Int.(imem_base + 9), Halt);
+        (of_int Int.(imem_base + offset), Ld (RD, of_int 0, RS1));
+        (of_int Int.(imem_base + offset + 1), Add (RD, RD, RD));
+        (of_int Int.(imem_base + offset + 2), St (of_int 100, RS1, RD));
+        (of_int Int.(imem_base + offset + 3), Add (RS1, RS1, RS2));
       ]
   in
-  let thread rs1 rs2 =
+  let halt offset = Addr.[ (of_int Int.(imem_base + offset), Halt) ] in
+  let prog = loop 0 @ loop 4 @ loop 8 @ halt 12 in
+  let thread rs1 =
     Mk_arch
       {
         st = Reg_st { reg_st = rs1; reg_tag = RS1 };
@@ -54,7 +51,7 @@ let _ =
             [
               Mk_arch
                 {
-                  st = Reg_st { reg_st = rs2; reg_tag = RS2 };
+                  st = Reg_st { reg_st = 1; reg_tag = RS2 };
                   upd = reg_upd_init;
                   children =
                     Arch
@@ -119,8 +116,7 @@ let _ =
                                       st = Reg_st { reg_st = 0; reg_tag = R0 };
                                       upd = reg_upd_init;
                                       children =
-                                        Arch
-                                          [ thread a_base 0; thread b_base 0 ];
+                                        Arch [ thread a_base; thread b_base ];
                                     };
                                 ];
                           };
