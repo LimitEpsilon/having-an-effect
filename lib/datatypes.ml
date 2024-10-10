@@ -22,7 +22,17 @@ end
 
 module Z : Denum = struct
   module Pos = struct
-    type t = XI of t | XO of t | XH [@@deriving sexp_of]
+    type t = XI of t | XO of t | XH
+
+    let sexp_of_t =
+      let open Core.Int64 in
+      let one = of_int 1 in
+      let rec go = function
+        | XI x -> (go x lsl 1) + one
+        | XO x -> go x lsl 1
+        | XH -> one
+      in
+      fun x -> sexp_of_t (go x)
 
     let of_int =
       let rec go (n : int) =
