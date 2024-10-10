@@ -4,31 +4,45 @@ open Effect.Deep
 open Datatypes
 
 module Addr : Denum = struct
-  include Pos
+  include Z
 end
 
 module Ticket : Denum = struct
-  include Pos
+  include Z
 end
 
 exception Register_written_twice of { reg : string; value : string }
 
+type pc = Addr.t [@@deriving sexp_of]
+
+type _ reg =
+  | PC : Addr.t reg
+  | RS1 : int reg
+  | RS2 : int reg
+  | RD : int reg
+  | R0 : int reg (* always zero *)
+[@@deriving sexp_of]
+
 type inst =
-  | Add : inst
-  | Ld : Addr.t -> inst
-  | St : Addr.t -> inst
-  | Beq : Addr.t -> inst
-  | Blt : Addr.t -> inst
-  (*| Barrier : inst*)
+  | Add : (int reg * int reg * int reg) -> inst
+  (* add rd rs1 rs2 *)
+  (* rd ← (rs1) + (rs2) *)
+  | Ld : (int reg * Addr.t * int reg) -> inst
+  (* ld rd imm(rs1) *)
+  (* rd ← M[(rs1) + imm] *)
+  | St : (Addr.t * int reg * int reg) -> inst
+  (* st imm(rs1) rs2 *)
+  (* M[(rs1) + imm] ← (rs2) *)
+  | Beq : (int reg * int reg * Addr.t) -> inst
+  (* beq rs1 rs2 imm *)
+  (* (pc') = if (rs1) = (rs2) then (pc) + imm else (pc) + 1 *)
+  | Blt : (int reg * int reg * Addr.t) -> inst
+  (* blt rs1 rs2 imm *)
+  (* (pc') = if (rs1) < (rs2) then (pc) + imm else (pc) + 1 *)
   | Halt : inst
 [@@deriving sexp_of]
 
-type pc = Addr.t [@@deriving sexp_of]
 type _ mem = Imem : inst mem | Dmem : int mem [@@deriving sexp_of]
-
-type _ reg = PC : pc reg | RS1 : int reg | RS2 : int reg | RD : int reg
-[@@deriving sexp_of]
-
 type warp = Warp [@@deriving sexp_of]
 type 'a promise = unit -> 'a option [@@deriving sexp]
 
@@ -48,14 +62,21 @@ type _ update =
   | Mem_upd : {
       (* pending_r ≤ t < ticket ↔ t waiting *)
       pending_r : Ticket.t;
-      (* TODO: Track program order *)
       (* pending writes in reverse order, latest request at head *)
-      pending_w : (Addr.t * 'a) list;
+      pending_w : (Ticket.t * Addr.t * 'a option) list;
       (* not yet given to anyone *)
       ticket : Ticket.t;
     }
       -> 'a mem update
-  | Reg_upd : 'a option -> 'a reg update
+  | Reg_upd : {
+      (* pending_r ≤ t < ticket ↔ t waiting *)
+      pending_r : Ticket.t;
+      (* pending writes in reverse order, latest request at head *)
+      pending_w : (Ticket.t * 'a option) list;
+      (* not yet given to anyone *)
+      ticket : Ticket.t;
+    }
+      -> 'a reg update
   | Warp_upd : { voted : Addr.t list; nth_election : Ticket.t } -> warp update
 
 type task =
@@ -76,7 +97,8 @@ type exec = Arch : exec arch list -> exec | Exec : task list -> exec
 (* read-write events *)
 type _ Effect.t +=
   | Read : 'a loc -> 'a promise t
-  | Write : ('a loc * 'a) -> unit t
+  | Write : ('a loc * (unit -> 'a)) -> unit t
+  | Reserve : 'a loc -> ('a -> unit) t
 
 (* warp schedule *)
 type _ Effect.t +=
@@ -85,20 +107,22 @@ type _ Effect.t +=
 
 (* task schedule *)
 type _ Effect.t +=
-  | Schedule : (unit -> unit) -> unit t
   | Await : 'a promise -> 'a t
   | More : unit t (* unstable, do more *)
 
 (* check promise *)
 type _ Effect.t +=
   | Check_mem : (Ticket.t * Addr.t * 'a mem) -> 'a option t
-  | Check_reg : 'a reg -> 'a option t
+  | Fulfill_mem : (Ticket.t * 'a * 'a mem) -> unit t
+  | Check_reg : (Ticket.t * 'a reg) -> 'a option t
+  | Fulfill_reg : (Ticket.t * 'a * 'a reg) -> unit t
   | Check_ballot : Ticket.t -> unit option t
 
 let read (type a) (s : a loc) : a promise = perform @@ Read s
-let write (type a) (s : a loc) (x : a) : unit = perform @@ Write (s, x)
-let schedule (task : unit -> unit) : unit = perform @@ Schedule task
+let write (type a) (s : a loc) (x : unit -> a) : unit = perform @@ Write (s, x)
 let await (type a) (prm : a promise) : a = perform @@ Await prm
+let vote (pc : Addr.t) : unit promise = perform @@ Vote pc
+let decode (pc : Addr.t) : inst promise option = perform @@ Decode pc
 
 (******** sexp ********)
 let sexp_of_mem_v (type m) (tag : m mem) : m -> Sexp.t =
@@ -110,6 +134,7 @@ let sexp_of_reg_v (type r) (tag : r reg) : r -> Sexp.t =
   | RS1 -> sexp_of_int
   | RS2 -> sexp_of_int
   | RD -> sexp_of_int
+  | R0 -> sexp_of_int
 
 let sexp_of_mem_storage (type m) (st : m mem storage) : Sexp.t =
   let open Sexp in
@@ -159,7 +184,15 @@ let sexp_of_mem_update (type m) (tag : m mem) (upd : m mem update) =
           List
             [
               Atom "pending_w";
-              sexp_of_list (sexp_of_pair Addr.sexp_of_t sexp_of_v) pending_w;
+              sexp_of_list
+                (fun (t, pc, ov) ->
+                  List
+                    [
+                      Ticket.sexp_of_t t;
+                      Addr.sexp_of_t pc;
+                      sexp_of_option sexp_of_v ov;
+                    ])
+                pending_w;
             ];
           List [ Atom "ticket"; Ticket.sexp_of_t ticket ];
         ]
@@ -167,9 +200,22 @@ let sexp_of_mem_update (type m) (tag : m mem) (upd : m mem update) =
 let sexp_of_reg_update (type r) (tag : r reg) (upd : r reg update) =
   let open Sexp in
   match upd with
-  | Reg_upd o ->
+  | Reg_upd { pending_r; pending_w; ticket } ->
       let sexp_of_v : r -> Sexp.t = sexp_of_reg_v tag in
-      List [ Atom "Reg_upd"; sexp_of_option sexp_of_v o ]
+      List
+        [
+          Atom "Reg_upd";
+          List [ Atom "pending_r"; Ticket.sexp_of_t pending_r ];
+          List
+            [
+              Atom "pending_w";
+              sexp_of_list
+                (fun (t, ov) ->
+                  List [ Ticket.sexp_of_t t; sexp_of_option sexp_of_v ov ])
+                pending_w;
+            ];
+          List [ Atom "ticket"; Ticket.sexp_of_t ticket ];
+        ]
 
 let sexp_of_warp_update (upd : warp update) =
   let open Sexp in

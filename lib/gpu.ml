@@ -1,74 +1,59 @@
 open Core
-open Effect
 open Domains
 
 let rec cycle () =
   let pc_tgt = await (read (Reg PC)) in
-  let pc_warp = perform @@ Decode pc_tgt in
+  let pc_warp = decode pc_tgt in
   match pc_warp with
   | None -> next_cycle pc_tgt
   | Some inst -> execute pc_tgt (await inst)
 
 and next_cycle pc =
-  write (Reg PC) pc;
-  let ballot = perform @@ Vote pc in
-  await ballot;
+  let () = write (Reg PC) (fun () -> pc) in
+  let ballot = vote pc in
+  let () = await ballot in
   cycle ()
 
 (* differentiate btwn local/shared memory *)
 (* differentiate btwn registers that have different latencies *)
 and execute pc inst =
   match inst with
-  | Add ->
-      let x = read (Reg RS1) in
-      let y = read (Reg RS2) in
+  | Add (rd, rs1, rs2) ->
+      let x = read (Reg rs1) in
+      let y = read (Reg rs2) in
       (* TODO: use effects to consider latency of addition *)
-      let w () =
-        let x = await x in
-        let y = await y in
-        write (Reg RD) (x + y)
-      in
+      let added () = await x + await y in
+      let () = write (Reg rd) added in
       let pc_tgt = Addr.(succ pc) in
-      schedule w;
       next_cycle pc_tgt
-  | Ld addr ->
-      let x = read (Mem (addr, Dmem)) in
-      let w () =
-        let x = await x in
-        write (Reg RD) x
-      in
+  | Ld (rd, imm, rs1) ->
+      let base = read (Reg rs1) in
+      let open Addr in
+      let x = read (Mem (of_int (await base) + imm, Dmem)) in
+      let x () = await x in
+      let () = write (Reg rd) x in
+      let pc_tgt = succ pc in
+      next_cycle pc_tgt
+  | St (imm, rs1, rs2) ->
+      let base = read (Reg rs1) in
+      let x = read (Reg rs2) in
+      let x () = await x in
+      let open Addr in
+      let () = write (Mem (of_int (await base) + imm, Dmem)) x in
       let pc_tgt = Addr.(succ pc) in
-      schedule w;
       next_cycle pc_tgt
-  | St addr ->
-      let x = read (Reg RS1) in
-      let w () =
-        let x = await x in
-        write (Mem (addr, Dmem)) x
-      in
-      let pc_tgt = Addr.(succ pc) in
-      schedule w;
-      next_cycle pc_tgt
-  | Beq addr ->
-      let x = read (Reg RS1) in
-      let y = read (Reg RS2) in
+  | Beq (rs1, rs2, imm) ->
+      let x = read (Reg rs1) in
+      let y = read (Reg rs2) in
       (* TODO: use effects to consider latency of comparison *)
-      let w () =
-        let x = await x in
-        let y = await y in
-        let pc_tgt = if Int.(x = y) then addr else Addr.(succ pc) in
-        next_cycle pc_tgt
-      in
-      schedule w
-  | Blt addr ->
-      let x = read (Reg RS1) in
-      let y = read (Reg RS2) in
+      let open Addr in
+      let pc_tgt = if Int.(await x = await y) then pc + imm else succ pc in
+      next_cycle pc_tgt
+  | Blt (rs1, rs2, imm) ->
+      let x = read (Reg rs1) in
+      let y = read (Reg rs2) in
       (* TODO: use effects to consider latency of comparison *)
-      let w () =
-        let x = await x in
-        let y = await y in
-        let pc_tgt = if Int.(x < y) then addr else Addr.(succ pc) in
-        next_cycle pc_tgt
-      in
-      schedule w
+      let open Addr in
+      let pc_tgt = if Int.(await x < await y) then pc + imm else succ pc in
+      next_cycle pc_tgt
   | Halt -> ()

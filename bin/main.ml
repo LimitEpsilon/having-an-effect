@@ -1,96 +1,68 @@
 open EDSLNG
 open Debug
 open Core
-open Edslng
 
 let () = debug.set false
 
-let (VInt 9) =
-  let module M = TInc in
-  eval_v M.res
+let reg_upd_init =
+  let open Domains in
+  Reg_upd { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one }
 
-let (VInt 10) =
-  let module M = TIf in
-  eval_v M.res
-
-(* Demonstrating that our if_ works correctly, even in the presence of errors *)
-let (VInt 11) =
-  let res =
-    int 1
-    + cond (eq (int 1 + int 2) (int 3)) (int 10) (fun _ -> failwith "Bang!")
-  in
-  eval_v res
-
-let "Bang!" =
-  let res =
-    int 1
-    + cond (eq (int 1 + int 2) (int 4)) (int 10) (fun _ -> failwith "Bang!")
-  in
-  try
-    eval_v res |> ignore;
-    "No"
-  with
-  | Failure s -> s
-  | _ -> "No"
-
-let (VInt 10) =
-  let module M = TSt in
-  eval_v M.res
-
-(* Test cases *)
-let (VClos _) =
-  let module M = TLam in
-  eval_v M.res0
-
-let (VInt 10) =
-  let module M = TLam in
-  eval_v M.res01
-
-let (VClos _) =
-  let module M = TLam in
-  eval_v M.res1
-
-let (VInt 3) =
-  let module M = TLam in
-  eval_v M.res11
-
-let (VInt 3) =
-  let module M = TLam in
-  eval_v M.res2
-
-(* But we do not need any functors! *)
-
-let (VInt 122) =
-  let module M = TLamSt in
-  eval_v M.res
-
-(*let _ = print_endline "All Done"*)
+let mem_upd_init =
+  let open Domains in
+  Mem_upd { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one }
 
 let _ =
   debug.set true;
   let open Domains in
-  let add_addr = Addr.one in
-  let halt_addr = Addr.succ add_addr in
-  let prog : (Addr.t * inst) list = [ (add_addr, Add); (halt_addr, Halt) ] in
-  let thread =
+  let a_base = 0 in
+  let b_base = 200 in
+  let mem : (Addr.t * int) list =
+    Addr.
+      [
+        (of_int Int.(a_base + 0), 1);
+        (of_int Int.(a_base + 1), 2);
+        (of_int Int.(a_base + 2), 3);
+        (of_int Int.(b_base + 0), 4);
+        (of_int Int.(b_base + 1), 5);
+        (of_int Int.(b_base + 2), 6);
+      ]
+  in
+  let imem_base = 0 in
+  let prog : (Addr.t * inst) list =
+    Addr.
+      [
+        (of_int Int.(imem_base + 0), Ld (RS2, of_int 0, RS1));
+        (of_int Int.(imem_base + 1), Add (RD, RS2, RS2));
+        (of_int Int.(imem_base + 2), St (of_int 100, RS1, RD));
+        (of_int Int.(imem_base + 3), Ld (RS2, of_int 1, RS1));
+        (of_int Int.(imem_base + 4), Add (RD, RS2, RS2));
+        (of_int Int.(imem_base + 5), St (of_int 101, RS1, RD));
+        (of_int Int.(imem_base + 6), Ld (RS2, of_int 2, RS1));
+        (of_int Int.(imem_base + 7), Add (RD, RS2, RS2));
+        (of_int Int.(imem_base + 8), St (of_int 102, RS1, RD));
+        (of_int Int.(imem_base + 9), Halt);
+      ]
+  in
+  let thread rs1 rs2 =
     Mk_arch
       {
-        st = Reg_st { reg_st = 1; reg_tag = RS1 };
-        upd = Reg_upd None;
+        st = Reg_st { reg_st = rs1; reg_tag = RS1 };
+        upd = reg_upd_init;
         children =
           Arch
             [
               Mk_arch
                 {
-                  st = Reg_st { reg_st = 1; reg_tag = RS2 };
-                  upd = Reg_upd None;
+                  st = Reg_st { reg_st = rs2; reg_tag = RS2 };
+                  upd = reg_upd_init;
                   children =
                     Arch
                       [
                         Mk_arch
                           {
-                            st = Reg_st { reg_st = 1; reg_tag = RD };
-                            upd = Reg_upd None;
+                            st = Reg_st { reg_st = 0; reg_tag = RD };
+                            upd = reg_upd_init;
                             children =
                               Arch
                                 [
@@ -98,8 +70,11 @@ let _ =
                                     {
                                       st =
                                         Reg_st
-                                          { reg_st = add_addr; reg_tag = PC };
-                                      upd = Reg_upd None;
+                                          {
+                                            reg_st = Addr.(of_int imem_base);
+                                            reg_tag = PC;
+                                          };
+                                      upd = reg_upd_init;
                                       children = Exec [ Initial Gpu.cycle ];
                                     };
                                 ];
@@ -112,7 +87,7 @@ let _ =
   let arch =
     Mk_arch
       {
-        st = Mem_st { mem_st = prog; mem_tag = Imem };
+        st = Mem_st { mem_st = mem; mem_tag = Dmem };
         upd =
           Mem_upd
             { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one };
@@ -121,9 +96,35 @@ let _ =
             [
               Mk_arch
                 {
-                  st = Warp_st { warp_pc = add_addr; decode_req = None };
-                  upd = Warp_upd { voted = []; nth_election = Ticket.one };
-                  children = Arch [ thread; thread ];
+                  st = Mem_st { mem_st = prog; mem_tag = Imem };
+                  upd = mem_upd_init;
+                  children =
+                    Arch
+                      [
+                        Mk_arch
+                          {
+                            st =
+                              Warp_st
+                                {
+                                  warp_pc = Addr.of_int imem_base;
+                                  decode_req = None;
+                                };
+                            upd =
+                              Warp_upd { voted = []; nth_election = Ticket.one };
+                            children =
+                              Arch
+                                [
+                                  Mk_arch
+                                    {
+                                      st = Reg_st { reg_st = 0; reg_tag = R0 };
+                                      upd = reg_upd_init;
+                                      children =
+                                        Arch
+                                          [ thread a_base 0; thread b_base 0 ];
+                                    };
+                                ];
+                          };
+                      ];
                 };
             ];
       }
