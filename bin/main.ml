@@ -29,14 +29,18 @@ let _ =
       ]
   in
   let imem_base = 0 in
-  (* (RS2) = 1 *)
+  (* PRE : (RS2) = 1 *)
   let loop offset : (Addr.t * inst) list =
     Addr.
       [
         (of_int Int.(imem_base + offset), Ld (RD, of_int 0, RS1));
+        (* RD ← M[(Rs1)] *)
         (of_int Int.(imem_base + offset + 1), Add (RD, RD, RD));
+        (* RD ← (RD) + (RD) *)
         (of_int Int.(imem_base + offset + 2), St (of_int 100, RS1, RD));
+        (* M[(RS1) + 100] ← (RD) *)
         (of_int Int.(imem_base + offset + 3), Add (RS1, RS1, RS2));
+        (* RS1 ← (RS1) + 1 *)
       ]
   in
   let halt offset = Addr.[ (of_int Int.(imem_base + offset), Halt) ] in
@@ -103,22 +107,12 @@ let _ =
                             st =
                               Warp_st
                                 {
-                                  warp_pc = Addr.of_int imem_base;
-                                  decode_req = None;
+                                  warp_pc = None;
+                                  decode_req = (fun () -> None);
                                 };
                             upd =
                               Warp_upd { voted = []; nth_election = Ticket.one };
-                            children =
-                              Arch
-                                [
-                                  Mk_arch
-                                    {
-                                      st = Reg_st { reg_st = 0; reg_tag = R0 };
-                                      upd = reg_upd_init;
-                                      children =
-                                        Arch [ thread a_base; thread b_base ];
-                                    };
-                                ];
+                            children = Arch [ thread a_base; thread b_base ];
                           };
                       ];
                 };

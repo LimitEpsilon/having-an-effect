@@ -11,8 +11,6 @@ module Ticket : Denum = struct
   include Z
 end
 
-exception Register_written_twice of { reg : string; value : string }
-
 type pc = Addr.t [@@deriving sexp_of]
 
 type _ reg =
@@ -50,8 +48,8 @@ type _ storage =
   | Mem_st : { mem_st : (Addr.t * 'a) list; mem_tag : 'a mem } -> 'a mem storage
   | Reg_st : { reg_st : 'a; reg_tag : 'a reg } -> 'a reg storage
   | Warp_st : {
-      warp_pc : Addr.t;
-      decode_req : inst promise option;
+      warp_pc : Addr.t option;
+      decode_req : inst promise;
     }
       -> warp storage
 
@@ -77,7 +75,11 @@ type _ update =
       ticket : Ticket.t;
     }
       -> 'a reg update
-  | Warp_upd : { voted : Addr.t list; nth_election : Ticket.t } -> warp update
+  | Warp_upd : {
+      voted : (Addr.t * int * inst promise) list;
+      nth_election : Ticket.t;
+    }
+      -> warp update
 
 type task =
   | Initial : (unit -> unit) -> task
@@ -110,7 +112,7 @@ type _ Effect.t +=
   | Await : 'a promise -> 'a t
   | More : unit t (* unstable, do more *)
 
-(* check promise *)
+(* check/fulfill promise *)
 type _ Effect.t +=
   | Check_mem : (Ticket.t * Addr.t * 'a mem) -> 'a option t
   | Fulfill_mem : (Ticket.t * 'a * 'a mem) -> unit t
@@ -162,8 +164,8 @@ let sexp_of_warp_storage (st : warp storage) : Sexp.t =
       List
         [
           Atom "Warp_st";
-          Addr.sexp_of_t warp_pc;
-          sexp_of_option (sexp_of_promise sexp_of_inst) decode_req;
+          sexp_of_option Addr.sexp_of_t warp_pc;
+          sexp_of_promise sexp_of_inst decode_req;
         ]
 
 let sexp_of_storage (type s) (st : s storage) : Sexp.t =
@@ -224,7 +226,19 @@ let sexp_of_warp_update (upd : warp update) =
       List
         [
           Atom "Warp_upd";
-          List [ Atom "voted"; sexp_of_list Addr.sexp_of_t voted ];
+          List
+            [
+              Atom "voted";
+              sexp_of_list
+                (fun (pc, n, prm) ->
+                  List
+                    [
+                      Addr.sexp_of_t pc;
+                      Int.sexp_of_t n;
+                      sexp_of_promise sexp_of_inst prm;
+                    ])
+                voted;
+            ];
           List [ Atom "nth_election"; Ticket.sexp_of_t nth_election ];
         ]
 

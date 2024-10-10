@@ -334,6 +334,27 @@ let reg_h :
         | _ -> None);
   }
 
+let vote pc voted =
+  let rec go seen = function
+    | [] -> (List.rev seen, false)
+    | (addr, n, prm) :: unseen ->
+        if Addr.(addr = pc) then
+          (List.rev_append seen ((addr, n + 1, prm) :: unseen), true)
+        else go ((addr, n, prm) :: seen) unseen
+  in
+  let voted, found = go [] voted in
+  if found then voted else (pc, 1, read (Mem (pc, Imem))) :: voted
+
+let elect default voted =
+  let rec go (addr, n, prm) seen = function
+    | [] -> ((addr, n, prm), List.rev seen)
+    | (addr', n', prm') :: unseen ->
+        if Int.(n' < n) then
+          go (addr, n, prm) ((addr', n', prm') :: seen) unseen
+        else go (addr', n', prm') ((addr, n, prm) :: seen) unseen
+  in
+  go default [] voted
+
 let warp_h :
     type a.
     ( a,
@@ -351,24 +372,20 @@ let warp_h :
                 let upd, ballot =
                   match upd with
                   | Warp_upd { voted; nth_election } ->
-                      ( Warp_upd { voted = pc :: voted; nth_election },
+                      ( Warp_upd { voted = vote pc voted; nth_election },
                         fun () -> perform @@ Check_ballot nth_election )
                 in
                 continue k ballot ~st ~upd)
         | Decode pc ->
             Some
               (fun (k : (c, _) continuation) ~st ~upd ->
-                let st, decode_res =
+                let decode_res =
                   match st with
-                  | Warp_st { warp_pc; decode_req } ->
-                      if Addr.(pc = warp_pc) then
-                        match decode_req with
-                        | None ->
-                            let req = read (Mem (pc, Imem)) in
-                            ( Warp_st { warp_pc; decode_req = Some req },
-                              Some req )
-                        | Some req -> (st, Some req)
-                      else (st, None)
+                  | Warp_st { warp_pc; decode_req } -> (
+                      match warp_pc with
+                      | None -> None
+                      | Some warp_pc ->
+                          if Addr.(pc = warp_pc) then Some decode_req else None)
                 in
                 continue k decode_res ~st ~upd)
         | Check_ballot ballot ->
@@ -390,23 +407,6 @@ let scheduler tasks =
         match prm () with
         | Some v -> List.rev_append (continue k v) todo
         | None -> Suspended (k, prm) :: todo))
-
-let rec majority_aux (maj : Addr.t) (maj_count : int) (unseen : Addr.t list)
-    (seen_count : Addr.t -> int) =
-  match unseen with
-  | [] -> maj
-  | seen :: unseen' ->
-      let count = seen_count seen + 1 in
-      let seen_count' addr =
-        if Addr.(seen = addr) then count else seen_count addr
-      in
-      let maj, maj_count =
-        if maj_count < count then (seen, count) else (maj, maj_count)
-      in
-      majority_aux maj maj_count unseen' seen_count'
-
-let majority (default : Addr.t) (l : Addr.t list) =
-  majority_aux default 0 l (fun _ -> 0)
 
 let update_storage :
     type s. st:s storage -> upd:s update -> s storage * s update =
@@ -468,21 +468,16 @@ let update_storage :
                 else pending_r
               in
               (st, Reg_upd { pending_r; pending_w; ticket })))
-  | Warp_st { warp_pc; decode_req } -> (
-      match decode_req with
-      | None -> (st, upd)
-      | _ -> (
-          match upd with
-          | Warp_upd { voted; nth_election } -> (
-              match voted with
-              | [] -> (st, upd)
-              | _ ->
-                  perform More;
-                  ( Warp_st
-                      { warp_pc = majority warp_pc voted; decode_req = None },
-                    Warp_upd
-                      { voted = []; nth_election = Ticket.succ nth_election } ))
-          ))
+  | Warp_st _ -> (
+      match upd with
+      | Warp_upd { voted; nth_election } -> (
+          match voted with
+          | [] -> (st, upd)
+          | default :: voted ->
+              perform More;
+              let (pc, _, prm), voted = elect default voted in
+              ( Warp_st { warp_pc = Some pc; decode_req = prm },
+                Warp_upd { voted; nth_election = Ticket.succ nth_election } )))
 
 let fix_h : type a. (a, more:bool -> a * bool) handler =
   {
