@@ -6,7 +6,7 @@ let () = debug.set false
 
 let reg_upd_init =
   let open Domains in
-  Reg_upd { pending = []; ticket = Ticket.one }
+  Reg_upd { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one }
 
 let mem_upd_init =
   let open Domains in

@@ -254,7 +254,7 @@ let reg_h :
                   (fun k ~st ~upd ->
                     let upd : r reg update = upd in
                     match upd with
-                    | Reg_upd { pending; ticket } ->
+                    | Reg_upd { pending_r; pending_w; ticket } ->
                         let () =
                           if debug.hide () then
                             let t =
@@ -265,7 +265,8 @@ let reg_h :
                         let upd' =
                           Reg_upd
                             {
-                              pending = (ticket, None) :: pending;
+                              pending_r;
+                              pending_w = (ticket, None) :: pending_w;
                               ticket = Ticket.(succ ticket);
                             }
                         in
@@ -280,7 +281,7 @@ let reg_h :
                   (fun k ~st ~upd ->
                     let upd : r reg update = upd in
                     match upd with
-                    | Reg_upd { pending; ticket } ->
+                    | Reg_upd { pending_r; ticket; _ } ->
                         let () =
                           if debug.hide () then
                             let t =
@@ -288,12 +289,7 @@ let reg_h :
                             in
                             print_endline @@ "Check with ticket " ^ t
                         in
-                        let earliest_write =
-                          match List.rev pending with
-                          | [] -> ticket
-                          | (ticket, _) :: _ -> ticket
-                        in
-                        if Ticket.(t <= earliest_write) then
+                        if Ticket.(t <= pending_r) then
                           match st with
                           | Reg_st { reg_st; _ } ->
                               let r : r = reg_st in
@@ -307,15 +303,14 @@ let reg_h :
                   (fun k ~st ~upd ->
                     let upd : r reg update = upd in
                     match upd with
-                    | Reg_upd { pending; ticket } ->
+                    | Reg_upd { pending_r; pending_w; ticket } ->
                         let () =
                           if debug.hide () then
                             let t = Sexp.to_string_hum (Ticket.sexp_of_t t) in
                             print_endline @@ "Fulfill with ticket " ^ t
                         in
-                        let upd' =
-                          Reg_upd { pending = fulfill_reg pending t v; ticket }
-                        in
+                        let pending_w = fulfill_reg pending_w t v in
+                        let upd' = Reg_upd { pending_r; pending_w; ticket } in
                         continue k () ~st ~upd:upd')
             | None -> None)
         | _ -> None);
@@ -402,43 +397,52 @@ let update_storage :
   | Mem_st { mem_st; mem_tag } -> (
       match upd with
       | Mem_upd { pending_r; pending_w; ticket } -> (
-          match List.rev pending_w with
-          | (t, addr, ov) :: rev_pending_w -> (
-              if Ticket.(pending_r < t) then (
-                (* turn to read *)
+          let fst_w, rev_pending_w =
+            let rev_pending_w = List.rev pending_w in
+            let fst_w =
+              match rev_pending_w with
+              | [] -> ticket
+              | (fst_w, _, _) :: _ -> fst_w
+            in
+            (fst_w, rev_pending_w)
+          in
+          if Ticket.(pending_r < fst_w) then (
+            (* turn to read *)
+            perform More;
+            let pending_r = Ticket.(succ pending_r) in
+            (st, Mem_upd { pending_r; pending_w; ticket }))
+          else
+            (* turn to write *)
+            match rev_pending_w with
+            | (_, addr, Some v) :: rev_pending_w ->
                 perform More;
                 let pending_r = Ticket.(succ pending_r) in
-                (st, Mem_upd { pending_r; pending_w; ticket }))
-              else
-                match ov with
-                | Some v ->
-                    (* turn to write *)
-                    perform More;
-                    let pending_r = Ticket.(succ pending_r) in
-                    let pending_w = List.rev rev_pending_w in
-                    ( Mem_st { mem_st = (addr, v) :: mem_st; mem_tag },
-                      Mem_upd { pending_r; pending_w; ticket } )
-                | None -> (st, upd))
-          | [] ->
-              let pending_r =
-                if Ticket.(pending_r < ticket) then (
-                  perform More;
-                  Ticket.(succ pending_r))
-                else pending_r
-              in
-              (st, Mem_upd { pending_r; pending_w; ticket })))
+                let snd_w =
+                  match rev_pending_w with
+                  | [] -> ticket
+                  | (snd_w, _, _) :: _ -> snd_w
+                in
+                let pending_r =
+                  if Ticket.(pending_r < snd_w) then
+                    (* allow reading *)
+                    Ticket.(succ pending_r)
+                  else pending_r
+                in
+                let pending_w = List.rev rev_pending_w in
+                ( Mem_st { mem_st = (addr, v) :: mem_st; mem_tag },
+                  Mem_upd { pending_r; pending_w; ticket } )
+            | _ -> (st, upd)))
   | Reg_st { reg_tag; _ } -> (
       match upd with
-      | Reg_upd { pending; ticket } -> (
-          match List.rev pending with
-          | (_, ov) :: rev_pending -> (
-              match ov with
-              | Some v ->
-                  perform More;
-                  let pending = List.rev rev_pending in
-                  (Reg_st { reg_st = v; reg_tag }, Reg_upd { pending; ticket })
-              | None -> (st, upd))
-          | [] -> (st, upd)))
+      | Reg_upd { pending_r; pending_w; ticket } -> (
+          match List.rev pending_w with
+          | (_, Some v) :: rev_pending_w ->
+              perform More;
+              let pending_r = Ticket.(succ pending_r) in
+              let pending_w = List.rev rev_pending_w in
+              ( Reg_st { reg_st = v; reg_tag },
+                Reg_upd { pending_r; pending_w; ticket } )
+          | _ -> (st, upd)))
   | Warp_st _ -> (
       match upd with
       | Warp_upd { voted; nth_election } -> (

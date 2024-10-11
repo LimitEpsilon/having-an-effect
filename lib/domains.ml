@@ -67,8 +67,11 @@ type _ update =
     }
       -> 'a mem update
   | Reg_upd : {
+      (* invariant : always the ticket of the earliest write *)
+      (* if pending_w = [], pending_r = ticket *)
+      pending_r : Ticket.t;
       (* pending writes in reverse order, latest request at head *)
-      pending : (Ticket.t * 'a option) list;
+      pending_w : (Ticket.t * 'a option) list;
       (* not yet given to anyone *)
       ticket : Ticket.t;
     }
@@ -204,18 +207,19 @@ let sexp_of_mem_update (type m) (tag : m mem) (upd : m mem update) =
 let sexp_of_reg_update (type r) (tag : r reg) (upd : r reg update) =
   let open Sexp in
   match upd with
-  | Reg_upd { pending; ticket } ->
+  | Reg_upd { pending_r; pending_w; ticket } ->
       let sexp_of_v : r -> Sexp.t = sexp_of_reg_v tag in
       List
         [
           Atom "Reg_upd";
+          List [ Atom "pending_r"; Ticket.sexp_of_t pending_r ];
           List
             [
-              Atom "pending";
+              Atom "pending_w";
               sexp_of_list
                 (fun (t, ov) ->
                   List [ Ticket.sexp_of_t t; sexp_of_option sexp_of_v ov ])
-                pending;
+                pending_w;
             ];
           List [ Atom "ticket"; Ticket.sexp_of_t ticket ];
         ]
