@@ -9,7 +9,7 @@ let rec cycle () =
   | Some inst -> execute pc_tgt (await inst)
 
 and next_cycle pc =
-  let () = write (Reg PC) (fun () -> pc) in
+  let () = schedule @@ write (Reg PC) (fun () -> pc) in
   let ballot = vote pc in
   let () = await ballot in
   cycle ()
@@ -23,7 +23,7 @@ and execute pc inst =
       let y = read (Reg rs2) in
       (* TODO: use effects to consider latency of addition *)
       let added () = await x + await y in
-      let () = write (Reg rd) added in
+      let () = schedule @@ write (Reg rd) added in
       let pc_tgt = Addr.(succ pc) in
       next_cycle pc_tgt
   | Ld (rd, imm, rs1) ->
@@ -31,7 +31,7 @@ and execute pc inst =
       let open Addr in
       let x = read (Mem (of_int (await base) + imm, Dmem)) in
       let x () = await x in
-      let () = write (Reg rd) x in
+      let () = schedule @@ write (Reg rd) x in
       let pc_tgt = succ pc in
       next_cycle pc_tgt
   | St (imm, rs1, rs2) ->
@@ -39,7 +39,7 @@ and execute pc inst =
       let x = read (Reg rs2) in
       let x () = await x in
       let open Addr in
-      let () = write (Mem (of_int (await base) + imm, Dmem)) x in
+      let () = schedule @@ write (Mem (of_int (await base) + imm, Dmem)) x in
       let pc_tgt = Addr.(succ pc) in
       next_cycle pc_tgt
   | Beq (rs1, rs2, imm) ->

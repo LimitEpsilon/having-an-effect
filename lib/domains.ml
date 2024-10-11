@@ -67,10 +67,8 @@ type _ update =
     }
       -> 'a mem update
   | Reg_upd : {
-      (* pending_r ≤ t < ticket ↔ t waiting *)
-      pending_r : Ticket.t;
       (* pending writes in reverse order, latest request at head *)
-      pending_w : (Ticket.t * 'a option) list;
+      pending : (Ticket.t * 'a option) list;
       (* not yet given to anyone *)
       ticket : Ticket.t;
     }
@@ -99,8 +97,7 @@ type exec = Arch : exec arch list -> exec | Exec : task list -> exec
 (* read-write events *)
 type _ Effect.t +=
   | Read : 'a loc -> 'a promise t
-  | Write : ('a loc * (unit -> 'a)) -> unit t
-  | Reserve : 'a loc -> ('a -> unit) t
+  | Write : ('a loc * (unit -> 'a)) -> (unit -> unit) t
 
 (* warp schedule *)
 type _ Effect.t +=
@@ -110,6 +107,7 @@ type _ Effect.t +=
 (* task schedule *)
 type _ Effect.t +=
   | Await : 'a promise -> 'a t
+  | Schedule : (unit -> unit) -> unit t
   | More : unit t (* unstable, do more *)
 
 (* check/fulfill promise *)
@@ -121,8 +119,12 @@ type _ Effect.t +=
   | Check_ballot : Ticket.t -> unit option t
 
 let read (type a) (s : a loc) : a promise = perform @@ Read s
-let write (type a) (s : a loc) (x : unit -> a) : unit = perform @@ Write (s, x)
+
+let write (type a) (s : a loc) (x : unit -> a) : unit -> unit =
+  perform @@ Write (s, x)
+
 let await (type a) (prm : a promise) : a = perform @@ Await prm
+let schedule (type a) (t : unit -> unit) : unit = perform @@ Schedule t
 let vote (pc : Addr.t) : unit promise = perform @@ Vote pc
 let decode (pc : Addr.t) : inst promise option = perform @@ Decode pc
 
@@ -202,19 +204,18 @@ let sexp_of_mem_update (type m) (tag : m mem) (upd : m mem update) =
 let sexp_of_reg_update (type r) (tag : r reg) (upd : r reg update) =
   let open Sexp in
   match upd with
-  | Reg_upd { pending_r; pending_w; ticket } ->
+  | Reg_upd { pending; ticket } ->
       let sexp_of_v : r -> Sexp.t = sexp_of_reg_v tag in
       List
         [
           Atom "Reg_upd";
-          List [ Atom "pending_r"; Ticket.sexp_of_t pending_r ];
           List
             [
-              Atom "pending_w";
+              Atom "pending";
               sexp_of_list
                 (fun (t, ov) ->
                   List [ Ticket.sexp_of_t t; sexp_of_option sexp_of_v ov ])
-                pending_w;
+                pending;
             ];
           List [ Atom "ticket"; Ticket.sexp_of_t ticket ];
         ]

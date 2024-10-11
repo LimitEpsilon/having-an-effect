@@ -35,13 +35,9 @@ let task_h : (unit, task list) handler =
       (fun (type c) (eff : c t) ->
         let () = if debug.hide () then printf "task_h\n" in
         match eff with
-        | Write (l, v) ->
+        | Schedule t ->
             perform More;
-            Some
-              (fun (k : (c, _) continuation) ->
-                let fulfill = perform @@ Reserve l in
-                let task () = fulfill (v ()) in
-                Initial task :: continue k ())
+            Some (fun (k : (c, _) continuation) -> Initial t :: continue k ())
         | Await prm ->
             perform More;
             Some (fun (k : (c, _) continuation) -> [ Suspended (k, prm) ])
@@ -50,14 +46,14 @@ let task_h : (unit, task list) handler =
 
 let fulfill_mem (type a) (m : (Ticket.t * Addr.t * a option) list)
     (t : Ticket.t) (v : a) =
-  let m' =
-    List.fold ~init:[]
-      ~f:(fun acc (ticket, addr, ov) ->
-        if Ticket.(t = ticket) then (ticket, addr, Some v) :: acc
-        else (ticket, addr, ov) :: acc)
-      m
+  let rec go seen = function
+    | [] -> List.rev seen
+    | (ticket, addr, ov) :: unseen ->
+        if Ticket.(t = ticket) then
+          List.rev_append seen ((ticket, addr, Some v) :: unseen)
+        else go ((ticket, addr, ov) :: seen) unseen
   in
-  List.rev m'
+  go [] m
 
 let mem_h :
     type a m.
@@ -105,7 +101,7 @@ let mem_h :
                           (fun () -> perform @@ Check_mem (ticket, addr, m'))
                           ~st ~upd:upd')
             | None -> None)
-        | Reserve (Mem (addr, m')) -> (
+        | Write (Mem (addr, m'), v) -> (
             match eqb_mem m m' with
             | Some Refl ->
                 Some
@@ -118,7 +114,7 @@ let mem_h :
                             let t =
                               Sexp.to_string_hum (Ticket.sexp_of_t ticket)
                             in
-                            print_endline @@ "Reserve with ticket " ^ t
+                            print_endline @@ "Write with ticket " ^ t
                         in
                         let upd' =
                           Mem_upd
@@ -129,7 +125,7 @@ let mem_h :
                             }
                         in
                         continue k
-                          (fun v -> perform @@ Fulfill_mem (ticket, v, m))
+                          (fun () -> perform @@ Fulfill_mem (ticket, v (), m))
                           ~st ~upd:upd')
             | None -> None)
         | Check_mem (ticket, addr, m') -> (
@@ -204,14 +200,14 @@ let mem_h :
 
 let fulfill_reg (type a) (r : (Ticket.t * a option) list) (t : Ticket.t) (v : a)
     =
-  let r' =
-    List.fold ~init:[]
-      ~f:(fun acc (ticket, ov) ->
-        if Ticket.(t = ticket) then (ticket, Some v) :: acc
-        else (ticket, ov) :: acc)
-      r
+  let rec go seen = function
+    | [] -> List.rev seen
+    | (ticket, ov) :: unseen ->
+        if Ticket.(t = ticket) then
+          List.rev_append seen ((ticket, Some v) :: unseen)
+        else go ((ticket, ov) :: seen) unseen
   in
-  List.rev r'
+  go [] r
 
 let reg_h :
     type a r.
@@ -239,7 +235,7 @@ let reg_h :
                   (fun (k : (c, _) continuation) ~st ~upd ->
                     let upd : r reg update = upd in
                     match upd with
-                    | Reg_upd { pending_r; pending_w; ticket } ->
+                    | Reg_upd { ticket; _ } ->
                         let () =
                           if debug.hide () then
                             let t =
@@ -247,53 +243,44 @@ let reg_h :
                             in
                             print_endline @@ "Read with ticket " ^ t
                         in
-                        let upd' =
-                          Reg_upd
-                            {
-                              pending_r;
-                              pending_w;
-                              ticket = Ticket.(succ ticket);
-                            }
-                        in
                         continue k
                           (fun () -> perform @@ Check_reg (ticket, r))
-                          ~st ~upd:upd')
+                          ~st ~upd)
             | None -> None)
-        | Reserve (Reg r') -> (
+        | Write (Reg r', v) -> (
             match eqb_reg r r' with
             | Some Refl ->
                 Some
                   (fun k ~st ~upd ->
                     let upd : r reg update = upd in
                     match upd with
-                    | Reg_upd { pending_r; pending_w; ticket } ->
+                    | Reg_upd { pending; ticket } ->
                         let () =
                           if debug.hide () then
                             let t =
                               Sexp.to_string_hum (Ticket.sexp_of_t ticket)
                             in
-                            print_endline @@ "Reserve with ticket " ^ t
+                            print_endline @@ "Write with ticket " ^ t
                         in
                         let upd' =
                           Reg_upd
                             {
-                              pending_r;
-                              pending_w = (ticket, None) :: pending_w;
+                              pending = (ticket, None) :: pending;
                               ticket = Ticket.(succ ticket);
                             }
                         in
                         continue k
-                          (fun v -> perform @@ Fulfill_reg (ticket, v, r))
+                          (fun () -> perform @@ Fulfill_reg (ticket, v (), r))
                           ~st ~upd:upd')
             | None -> None)
-        | Check_reg (ticket, r') -> (
+        | Check_reg (t, r') -> (
             match eqb_reg r r' with
             | Some Refl ->
                 Some
                   (fun k ~st ~upd ->
                     let upd : r reg update = upd in
                     match upd with
-                    | Reg_upd { pending_r; _ } ->
+                    | Reg_upd { pending; ticket } ->
                         let () =
                           if debug.hide () then
                             let t =
@@ -301,7 +288,12 @@ let reg_h :
                             in
                             print_endline @@ "Check with ticket " ^ t
                         in
-                        if Ticket.(ticket <= pending_r) then
+                        let earliest_write =
+                          match List.rev pending with
+                          | [] -> ticket
+                          | (ticket, _) :: _ -> ticket
+                        in
+                        if Ticket.(t <= earliest_write) then
                           match st with
                           | Reg_st { reg_st; _ } ->
                               let r : r = reg_st in
@@ -315,19 +307,14 @@ let reg_h :
                   (fun k ~st ~upd ->
                     let upd : r reg update = upd in
                     match upd with
-                    | Reg_upd { pending_r; pending_w; ticket } ->
+                    | Reg_upd { pending; ticket } ->
                         let () =
                           if debug.hide () then
                             let t = Sexp.to_string_hum (Ticket.sexp_of_t t) in
                             print_endline @@ "Fulfill with ticket " ^ t
                         in
                         let upd' =
-                          Reg_upd
-                            {
-                              pending_r;
-                              pending_w = fulfill_reg pending_w t v;
-                              ticket;
-                            }
+                          Reg_upd { pending = fulfill_reg pending t v; ticket }
                         in
                         continue k () ~st ~upd:upd')
             | None -> None)
@@ -442,32 +429,16 @@ let update_storage :
               (st, Mem_upd { pending_r; pending_w; ticket })))
   | Reg_st { reg_tag; _ } -> (
       match upd with
-      | Reg_upd { pending_r; pending_w; ticket } -> (
-          match List.rev pending_w with
-          | (t, ov) :: rev_pending_w -> (
-              if Ticket.(pending_r < t) then (
-                (* turn to read *)
-                perform More;
-                let pending_r = Ticket.(succ pending_r) in
-                (st, Reg_upd { pending_r; pending_w; ticket }))
-              else
-                match ov with
-                | Some v ->
-                    (* turn to write *)
-                    perform More;
-                    let pending_r = Ticket.(succ pending_r) in
-                    let pending_w = List.rev rev_pending_w in
-                    ( Reg_st { reg_st = v; reg_tag },
-                      Reg_upd { pending_r; pending_w; ticket } )
-                | None -> (st, upd))
-          | [] ->
-              let pending_r =
-                if Ticket.(pending_r < ticket) then (
+      | Reg_upd { pending; ticket } -> (
+          match List.rev pending with
+          | (_, ov) :: rev_pending -> (
+              match ov with
+              | Some v ->
                   perform More;
-                  Ticket.(succ pending_r))
-                else pending_r
-              in
-              (st, Reg_upd { pending_r; pending_w; ticket })))
+                  let pending = List.rev rev_pending in
+                  (Reg_st { reg_st = v; reg_tag }, Reg_upd { pending; ticket })
+              | None -> (st, upd))
+          | [] -> (st, upd)))
   | Warp_st _ -> (
       match upd with
       | Warp_upd { voted; nth_election } -> (
