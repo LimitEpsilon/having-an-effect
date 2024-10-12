@@ -4,6 +4,8 @@ open Effect
 open Effect.Deep
 open Domains
 
+exception Write_to_R0
+
 type (_, _) refl = Refl : ('a, 'a) refl
 
 let eqb_mem (type a b) (x : a mem) (y : b mem) : (a, b) refl option =
@@ -14,10 +16,38 @@ let eqb_mem (type a b) (x : a mem) (y : b mem) : (a, b) refl option =
 let eqb_reg (type a b) (x : a reg) (y : b reg) : (a, b) refl option =
   match x with
   | PC -> ( match y with PC -> Some Refl | _ -> None)
-  | RS1 -> ( match y with RS1 -> Some Refl | _ -> None)
-  | RS2 -> ( match y with RS2 -> Some Refl | _ -> None)
-  | RD -> ( match y with RD -> Some Refl | _ -> None)
   | R0 -> ( match y with R0 -> Some Refl | _ -> None)
+  | R1 -> ( match y with R1 -> Some Refl | _ -> None)
+  | R2 -> ( match y with R2 -> Some Refl | _ -> None)
+  | R3 -> ( match y with R3 -> Some Refl | _ -> None)
+  | R4 -> ( match y with R4 -> Some Refl | _ -> None)
+  | R5 -> ( match y with R5 -> Some Refl | _ -> None)
+  | R6 -> ( match y with R6 -> Some Refl | _ -> None)
+  | R7 -> ( match y with R7 -> Some Refl | _ -> None)
+  | R8 -> ( match y with R8 -> Some Refl | _ -> None)
+  | R9 -> ( match y with R9 -> Some Refl | _ -> None)
+  | R10 -> ( match y with R10 -> Some Refl | _ -> None)
+  | R11 -> ( match y with R11 -> Some Refl | _ -> None)
+  | R12 -> ( match y with R12 -> Some Refl | _ -> None)
+  | R13 -> ( match y with R13 -> Some Refl | _ -> None)
+  | R14 -> ( match y with R14 -> Some Refl | _ -> None)
+  | R15 -> ( match y with R15 -> Some Refl | _ -> None)
+  | R16 -> ( match y with R16 -> Some Refl | _ -> None)
+  | R17 -> ( match y with R17 -> Some Refl | _ -> None)
+  | R18 -> ( match y with R18 -> Some Refl | _ -> None)
+  | R19 -> ( match y with R19 -> Some Refl | _ -> None)
+  | R20 -> ( match y with R20 -> Some Refl | _ -> None)
+  | R21 -> ( match y with R21 -> Some Refl | _ -> None)
+  | R22 -> ( match y with R22 -> Some Refl | _ -> None)
+  | R23 -> ( match y with R23 -> Some Refl | _ -> None)
+  | R24 -> ( match y with R24 -> Some Refl | _ -> None)
+  | R25 -> ( match y with R25 -> Some Refl | _ -> None)
+  | R26 -> ( match y with R26 -> Some Refl | _ -> None)
+  | R27 -> ( match y with R27 -> Some Refl | _ -> None)
+  | R28 -> ( match y with R28 -> Some Refl | _ -> None)
+  | R29 -> ( match y with R29 -> Some Refl | _ -> None)
+  | R30 -> ( match y with R30 -> Some Refl | _ -> None)
+  | R31 -> ( match y with R31 -> Some Refl | _ -> None)
 
 let rec read_mem : type a. Addr.t -> (Addr.t * a) list -> a option =
  fun addr -> function

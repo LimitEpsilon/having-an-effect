@@ -15,16 +15,47 @@ type pc = Addr.t [@@deriving sexp_of]
 
 type _ reg =
   | PC : Addr.t reg
-  | RS1 : int reg
-  | RS2 : int reg
-  | RD : int reg
   | R0 : int reg (* always zero *)
+  | R1 : int reg
+  | R2 : int reg
+  | R3 : int reg
+  | R4 : int reg
+  | R5 : int reg
+  | R6 : int reg
+  | R7 : int reg
+  | R8 : int reg
+  | R9 : int reg
+  | R10 : int reg
+  | R11 : int reg
+  | R12 : int reg
+  | R13 : int reg
+  | R14 : int reg
+  | R15 : int reg
+  | R16 : int reg
+  | R17 : int reg
+  | R18 : int reg
+  | R19 : int reg
+  | R20 : int reg
+  | R21 : int reg
+  | R22 : int reg
+  | R23 : int reg
+  | R24 : int reg
+  | R25 : int reg
+  | R26 : int reg
+  | R27 : int reg
+  | R28 : int reg
+  | R29 : int reg
+  | R30 : int reg
+  | R31 : int reg
 [@@deriving sexp_of]
 
 type inst =
   | Add : (int reg * int reg * int reg) -> inst
   (* add rd rs1 rs2 *)
   (* rd ← (rs1) + (rs2) *)
+  | Addi : (int reg * int reg * int) -> inst
+  (* addi rd rs1 imm *)
+  (* rd ← (rs1) + imm *)
   | Ld : (int reg * Addr.t * int reg) -> inst
   (* ld rd imm(rs1) *)
   (* rd ← M[(rs1) + imm] *)
@@ -138,10 +169,38 @@ let sexp_of_mem_v (type m) (tag : m mem) : m -> Sexp.t =
 let sexp_of_reg_v (type r) (tag : r reg) : r -> Sexp.t =
   match tag with
   | PC -> sexp_of_pc
-  | RS1 -> sexp_of_int
-  | RS2 -> sexp_of_int
-  | RD -> sexp_of_int
   | R0 -> sexp_of_int
+  | R1 -> sexp_of_int
+  | R2 -> sexp_of_int
+  | R3 -> sexp_of_int
+  | R4 -> sexp_of_int
+  | R5 -> sexp_of_int
+  | R6 -> sexp_of_int
+  | R7 -> sexp_of_int
+  | R8 -> sexp_of_int
+  | R9 -> sexp_of_int
+  | R10 -> sexp_of_int
+  | R11 -> sexp_of_int
+  | R12 -> sexp_of_int
+  | R13 -> sexp_of_int
+  | R14 -> sexp_of_int
+  | R15 -> sexp_of_int
+  | R16 -> sexp_of_int
+  | R17 -> sexp_of_int
+  | R18 -> sexp_of_int
+  | R19 -> sexp_of_int
+  | R20 -> sexp_of_int
+  | R21 -> sexp_of_int
+  | R22 -> sexp_of_int
+  | R23 -> sexp_of_int
+  | R24 -> sexp_of_int
+  | R25 -> sexp_of_int
+  | R26 -> sexp_of_int
+  | R27 -> sexp_of_int
+  | R28 -> sexp_of_int
+  | R29 -> sexp_of_int
+  | R30 -> sexp_of_int
+  | R31 -> sexp_of_int
 
 let sexp_of_mem_storage (type m) (st : m mem storage) : Sexp.t =
   let open Sexp in
