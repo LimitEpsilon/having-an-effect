@@ -50,7 +50,8 @@ and execute pc inst =
       let x = read (Reg rs2) in
       let x () = await x in
       let addr = Addr.(of_int (await base) + imm) in
-      let () = schedule @@ write (Mem (addr, Dmem)) x in
+      let w = write (Mem (addr, Dmem)) x in
+      let () = schedule w in
       let pc_tgt = Addr.(succ pc) in
       next_cycle pc_tgt
   | Beq (rs1, rs2, imm) ->

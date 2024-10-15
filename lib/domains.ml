@@ -202,6 +202,11 @@ let sexp_of_reg_v (type r) (tag : r reg) : r -> Sexp.t =
   | R30 -> sexp_of_int
   | R31 -> sexp_of_int
 
+let sexp_of_mem_st (type m) (tag : m mem) =
+  let open Sexp in
+  let sexp_of_v : m -> t = sexp_of_mem_v tag in
+  sexp_of_list (sexp_of_pair Addr.sexp_of_t sexp_of_v)
+
 let sexp_of_mem_storage (type m) (st : m mem storage) : Sexp.t =
   let open Sexp in
   match st with
@@ -210,7 +215,7 @@ let sexp_of_mem_storage (type m) (st : m mem storage) : Sexp.t =
       List
         [
           Atom "Mem_st";
-          sexp_of_list (sexp_of_pair Addr.sexp_of_t sexp_of_v) mem_st;
+          sexp_of_mem_st mem_tag mem_st;
           sexp_of_mem sexp_of_v mem_tag;
         ]
 
@@ -238,50 +243,53 @@ let sexp_of_storage (type s) (st : s storage) : Sexp.t =
   | Reg_st _ -> sexp_of_reg_storage st
   | Warp_st _ -> sexp_of_warp_storage st
 
+let sexp_of_mem_pending_w (type m) (tag : m mem) =
+  let open Sexp in
+  let sexp_of_v : m -> t = sexp_of_mem_v tag in
+  let sexp_of_entry (t, pc, ov) =
+    List [ Ticket.sexp_of_t t; Addr.sexp_of_t pc; sexp_of_option sexp_of_v ov ]
+  in
+  sexp_of_list sexp_of_entry
+
 let sexp_of_mem_update (type m) (tag : m mem) (upd : m mem update) =
   let open Sexp in
   match upd with
   | Mem_upd { pending_r; pending_w; ticket } ->
-      let sexp_of_v : m -> Sexp.t = sexp_of_mem_v tag in
       List
         [
           Atom "Mem_upd";
           List [ Atom "pending_r"; Ticket.sexp_of_t pending_r ];
-          List
-            [
-              Atom "pending_w";
-              sexp_of_list
-                (fun (t, pc, ov) ->
-                  List
-                    [
-                      Ticket.sexp_of_t t;
-                      Addr.sexp_of_t pc;
-                      sexp_of_option sexp_of_v ov;
-                    ])
-                pending_w;
-            ];
+          List [ Atom "pending_w"; sexp_of_mem_pending_w tag pending_w ];
           List [ Atom "ticket"; Ticket.sexp_of_t ticket ];
         ]
+
+let sexp_of_reg_pending_w (type r) (tag : r reg) =
+  let open Sexp in
+  let sexp_of_v : r -> t = sexp_of_reg_v tag in
+  let sexp_of_entry (t, ov) =
+    List [ Ticket.sexp_of_t t; sexp_of_option sexp_of_v ov ]
+  in
+  sexp_of_list sexp_of_entry
 
 let sexp_of_reg_update (type r) (tag : r reg) (upd : r reg update) =
   let open Sexp in
   match upd with
   | Reg_upd { pending_r; pending_w; ticket } ->
-      let sexp_of_v : r -> Sexp.t = sexp_of_reg_v tag in
       List
         [
           Atom "Reg_upd";
           List [ Atom "pending_r"; Ticket.sexp_of_t pending_r ];
-          List
-            [
-              Atom "pending_w";
-              sexp_of_list
-                (fun (t, ov) ->
-                  List [ Ticket.sexp_of_t t; sexp_of_option sexp_of_v ov ])
-                pending_w;
-            ];
+          List [ Atom "pending_w"; sexp_of_reg_pending_w tag pending_w ];
           List [ Atom "ticket"; Ticket.sexp_of_t ticket ];
         ]
+
+let sexp_of_warp_voted =
+  let open Sexp in
+  let sexp_of_entry (pc, n, prm) =
+    List
+      [ Addr.sexp_of_t pc; Int.sexp_of_t n; sexp_of_promise sexp_of_inst prm ]
+  in
+  sexp_of_list sexp_of_entry
 
 let sexp_of_warp_update (upd : warp update) =
   let open Sexp in
@@ -290,19 +298,7 @@ let sexp_of_warp_update (upd : warp update) =
       List
         [
           Atom "Warp_upd";
-          List
-            [
-              Atom "voted";
-              sexp_of_list
-                (fun (pc, n, prm) ->
-                  List
-                    [
-                      Addr.sexp_of_t pc;
-                      Int.sexp_of_t n;
-                      sexp_of_promise sexp_of_inst prm;
-                    ])
-                voted;
-            ];
+          List [ Atom "voted"; sexp_of_warp_voted voted ];
           List [ Atom "nth_election"; Ticket.sexp_of_t nth_election ];
         ]
 

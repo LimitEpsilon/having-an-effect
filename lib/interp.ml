@@ -192,15 +192,7 @@ let mem_h :
                           if debug.hide () then (
                             let pending_w =
                               Sexp.to_string_hum
-                              @@ sexp_of_list
-                                   (fun (t, pc, ov) ->
-                                     Sexp.List
-                                       [
-                                         Ticket.sexp_of_t t;
-                                         Addr.sexp_of_t pc;
-                                         sexp_of_option (sexp_of_mem_v m) ov;
-                                       ])
-                                   pending_w
+                              @@ sexp_of_mem_pending_w m pending_w
                             in
                             print_endline pending_w;
 
@@ -208,20 +200,6 @@ let mem_h :
                             print_endline @@ "Fulfill with ticket " ^ t)
                         in
                         let pending_w = fulfill_mem pending_w t v in
-                        let pending_w_s =
-                          Sexp.to_string_hum
-                          @@ sexp_of_list
-                               (fun (t, pc, ov) ->
-                                 Sexp.List
-                                   [
-                                     Ticket.sexp_of_t t;
-                                     Addr.sexp_of_t pc;
-                                     sexp_of_option (sexp_of_mem_v m) ov;
-                                   ])
-                               pending_w
-                        in
-                        print_endline pending_w_s;
-
                         let upd' = Mem_upd { pending_r; pending_w; ticket } in
                         continue k () ~st ~upd:upd')
             | None -> None)

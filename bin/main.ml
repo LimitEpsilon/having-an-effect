@@ -4,21 +4,15 @@ open Core
 
 let () = debug.set false
 
-let reg_upd_init =
-  let open Domains in
-  Reg_upd { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one }
-
-let mem_upd_init =
-  let open Domains in
-  Mem_upd { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one }
-
 let add_reg =
   let open Domains in
   fun (type r e) (r : r reg) init (l : e) ->
     Mk_arch
       {
         st = Reg_st { reg_st = init; reg_tag = r };
-        upd = reg_upd_init;
+        upd =
+          Reg_upd
+            { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one };
         children = l;
       }
 
@@ -28,7 +22,9 @@ let add_mem =
     Mk_arch
       {
         st = Mem_st { mem_st = init; mem_tag = m };
-        upd = mem_upd_init;
+        upd =
+          Mem_upd
+            { pending_r = Ticket.one; pending_w = []; ticket = Ticket.one };
         children = l;
       }
 
@@ -85,15 +81,13 @@ let () =
     let arch = Arch [ add_reg R3 0 arch ] in
     let arch = Arch [ add_reg R2 iter_num arch ] in
     let arch = Arch [ add_reg R1 base arch ] in
-    let arch = add_reg R0 0 arch in
-    arch
+    add_reg R0 0 arch
   in
   let arch iter_num =
     let arch = Arch [ thread 0 iter_num; thread (2 * iter_num) iter_num ] in
     let arch = Arch [ add_warp arch ] in
     let arch = Arch [ add_mem Imem (loop iter_num) arch ] in
-    let arch = add_mem Dmem (mem iter_num) arch in
-    arch
+    add_mem Dmem (mem iter_num) arch
   in
   let final = Sexp.to_string_hum (sexp_of_arch (Interp.run (arch 3))) in
   print_endline "-------- Final state --------";
