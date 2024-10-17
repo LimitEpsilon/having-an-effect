@@ -5,9 +5,18 @@ open Core
 open Effect
 open Effect.Deep
 
-type v = ..
-type 'dom tag = ..
-type 'dom tag += V : v tag
+type (_, _) refl = Refl : ('a, 'a) refl
+type pure = Pure_ty
+type (_, _) dom = ..
+type (_, _) dom += Pure : 'a -> ('a, pure) dom
+type _ tag = ..
+type _ tag += Pure_tag : pure tag
+
+let eqb_tag : type a b. a tag -> b tag -> (a, b) refl option =
+ fun x y ->
+  match x with
+  | Pure_tag -> ( match y with Pure_tag -> Some Refl | _ -> None)
+  | _ -> None
 
 (*
  * ------------------------------------------------------------------------
@@ -15,42 +24,51 @@ type 'dom tag += V : v tag
  *)
 
 type _ Effect.t +=
-  | Int : (int * 'dom tag) -> 'dom t
-  | Add : ('dom * 'dom * 'dom tag) -> 'dom t
+  | Int : (int * 'repr tag) -> (int, 'repr) dom t
+  | Add :
+      ((int, 'repr) dom * (int, 'repr) dom * 'repr tag)
+      -> (int, 'repr) dom t
 
-let int i (tag : 'dom tag) = perform (Int (i, tag))
+let int i (tag : 'repr tag) = perform (Int (i, tag))
 
-let ( + ) (type dom) (x : dom tag -> dom) (y : dom tag -> dom) (tag : dom tag) :
-    dom =
+let ( + ) (type repr) (x : repr tag -> (int, repr) dom)
+    (y : repr tag -> (int, repr) dom) (tag : repr tag) : (int, repr) dom =
   let x = x tag in
   let y = y tag in
   perform (Add (x, y, tag))
 
 (* Examples: the first term in our simple language *)
 module TInc = struct
-  let res : type dom. dom tag -> dom = fun tag -> (int 2 + int 3 + int 4) tag
+  let res : type repr. repr tag -> (int, repr) dom =
+   fun tag -> (int 2 + int 3 + int 4) tag
 end
 
-type v += VInt of int (* add integers to our value domain *)
-
-let int_h : type a dom. int -> dom tag -> ((dom, a) continuation -> a) option =
+let int_h :
+    type a repr.
+    int ->
+    repr tag ->
+    (((int, repr) dom, (a, repr) dom) continuation -> (a, repr) dom) option =
  fun i ->
   if debug.get () then Printf.printf "Handle Int %d\n" i;
 
-  function V -> Some (fun k -> continue k (VInt i)) | _ -> None
+  function Pure_tag -> Some (fun k -> continue k (Pure i)) | _ -> None
 
 let add_h :
-    type a dom. dom -> dom -> dom tag -> ((dom, a) continuation -> a) option =
+    type a repr.
+    (int, repr) dom ->
+    (int, repr) dom ->
+    repr tag ->
+    (((int, repr) dom, (a, repr) dom) continuation -> (a, repr) dom) option =
  fun x y ->
   if debug.get () then Printf.printf "Handle Add\n";
 
   function
-  | V ->
+  | Pure_tag ->
       Some
         (fun k ->
           match (x, y) with
-          | VInt x, VInt y -> continue k (VInt Int.(x + y))
-          | _, _ -> failwith "addition type error")
+          | Pure x, Pure y -> continue k (Pure Int.(x + y))
+          | _, _ -> raise @@ Invalid_argument "Not expected tag")
   | _ -> None
 
 (*
@@ -59,15 +77,20 @@ let add_h :
  *)
 
 type _ Effect.t +=
-  | Eq : ('dom * 'dom * 'dom tag) -> 'dom Effect.t
+  | Eq :
+      ((int, 'repr) dom * (int, 'repr) dom * 'repr tag)
+      -> (bool, 'repr) dom Effect.t
   | Cond :
-      ('dom * ('dom tag -> 'dom) * ('dom tag -> 'dom) * 'dom tag)
-      -> ('dom tag -> 'dom) Effect.t
+      ((bool, 'repr) dom
+      * ('repr tag -> ('res, 'repr) dom)
+      * ('repr tag -> ('res, 'repr) dom)
+      * 'repr tag)
+      -> ('repr tag -> ('res, 'repr) dom) Effect.t
 
-let cond pred con alt (tag : 'dom tag) =
+let cond pred con alt (tag : 'repr tag) =
   perform (Cond (pred tag, con, alt, tag)) tag
 
-let eq x y (tag : 'dom tag) =
+let eq x y (tag : 'repr tag) =
   let x = x tag in
   let y = y tag in
   perform (Eq (x, y, tag))
@@ -78,44 +101,46 @@ module TIf = struct
     M.res (* earlier term*)
 
   (* Example, reusing the earlier TInc *)
-  let res : type dom. dom tag -> dom =
+  let res : type res repr. repr tag -> (int, repr) dom =
    fun tag -> cond (eq (int 3) tinc) (int 10) (tinc + int 1) tag
 end
 
-(* Implementation, reusing the earlier RInt *)
-type v += VBool of bool (* add booleans to our value domain *)
-
 let eq_h :
-    type a dom. dom -> dom -> dom tag -> ((dom, a) continuation -> a) option =
+    type a repr.
+    (int, repr) dom ->
+    (int, repr) dom ->
+    repr tag ->
+    (((bool, repr) dom, (a, repr) dom) continuation -> (a, repr) dom) option =
  fun x y ->
   if debug.get () then Printf.printf "Handle Eq\n";
 
   function
-  | V ->
+  | Pure_tag ->
       Some
         (fun k ->
           match (x, y) with
-          | VInt x, VInt y -> continue k (VBool Int.(x = y))
-          | _, _ -> failwith "eq type error")
+          | Pure x, Pure y -> continue k (Pure Int.(x = y))
+          | _, _ -> failwith "unexpected tag")
   | _ -> None
 
 let cond_h :
-    type a dom.
-    dom ->
-    (dom tag -> dom) ->
-    (dom tag -> dom) ->
-    dom tag ->
-    ((dom tag -> dom, a) continuation -> a) option =
+    type a res repr.
+    (bool, repr) dom ->
+    (repr tag -> (res, repr) dom) ->
+    (repr tag -> (res, repr) dom) ->
+    repr tag ->
+    ((repr tag -> (res, repr) dom, (a, repr) dom) continuation -> (a, repr) dom)
+    option =
  fun pred con alt ->
   if debug.get () then Printf.printf "Handle Cond\n";
 
   function
-  | V ->
+  | Pure_tag ->
       Some
         (fun k ->
           match pred with
-          | VBool true -> continue k con
-          | VBool false -> continue k alt
+          | Pure true -> continue k con
+          | Pure false -> continue k alt
           | _ -> failwith "cond type error")
   | _ -> None
 
@@ -123,12 +148,12 @@ let cond_h :
    Adding state *)
 
 type _ Effect.t +=
-  | Get : 'dom tag -> 'dom Effect.t
-  | Put : ('dom * 'dom tag) -> 'dom Effect.t
+  | Get : 'repr tag -> (int, 'repr) dom Effect.t
+  | Put : ((int, 'repr) dom * 'repr tag) -> (int, 'repr) dom Effect.t
 
-let get (tag : 'dom tag) = perform (Get tag)
+let get (tag : 'repr tag) = perform (Get tag)
 
-let put x (tag : 'dom tag) =
+let put x (tag : 'repr tag) =
   let x = x tag in
   perform (Put (x, tag))
 
@@ -137,7 +162,7 @@ module TSt = struct
     let module M = TInc in
     M.res (* earlier term*)
 
-  let res : type dom. dom tag -> dom =
+  let res : type repr. repr tag -> (int, repr) dom =
    fun tag ->
     cond (eq (int 3) (put tinc)) (put (int 20)) (put (int 1 + get)) tag
 end
@@ -145,35 +170,72 @@ end
 (* We need to handle the State requests. *)
 
 let get_h :
-    type a dom.
-    dom tag -> ((dom, state:v -> a * v) continuation -> state:v -> a * v) option
-    = function
-  | V ->
+    type a repr.
+    repr tag ->
+    (( (int, repr) dom,
+       state:(int, repr) dom -> (a * int, repr) dom )
+     continuation ->
+    state:(int, repr) dom ->
+    (a * int, repr) dom)
+    option = function
+  | Pure_tag ->
       if debug.get () then Printf.printf "Handle Get\n";
 
       Some (fun k ~state -> continue k state ~state)
   | _ -> None
 
 let put_h :
-    type a dom.
-    dom ->
-    dom tag ->
-    ((dom, state:v -> a * v) continuation -> state:v -> a * v) option =
+    type a repr.
+    (int, repr) dom ->
+    repr tag ->
+    (( (int, repr) dom,
+       state:(int, repr) dom -> (a * int, repr) dom )
+     continuation ->
+    state:(int, repr) dom ->
+    (a * int, repr) dom)
+    option =
  fun v ->
   if debug.get () then Printf.printf "Handle Put\n";
 
-  function V -> Some (fun k ~state:_ -> continue k v ~state:v) | _ -> None
+  function
+  | Pure_tag -> Some (fun k ~state:_ -> continue k v ~state:v) | _ -> None
 
-(* fix the type of state to v *)
-let state_h (type a) : (a, state:v -> a * v) handler =
+let dom_tuple (type repr a b) (r : repr tag) (x : (a, repr) dom)
+    (y : (b, repr) dom) : (a * b, repr) dom =
+  match r with
+  | Pure_tag -> (
+      match (x, y) with Pure x, Pure y -> Pure (x, y) | _, _ -> assert false)
+  | _ -> assert false
+
+let state_h :
+    type a repr.
+    repr tag ->
+    ((a, repr) dom, state:(int, repr) dom -> (a * int, repr) dom) handler =
+ fun tag ->
   {
-    retc = (fun v ~state -> (v, state));
+    retc = (fun v ~state -> dom_tuple tag v state);
     exnc = raise;
     effc =
       (fun (type c) (eff : c t) ->
         match eff with
-        | Get tag -> get_h tag
-        | Put (state, tag) -> put_h state tag
+        | Get tag' -> (
+            match eqb_tag tag tag' with
+            | Some Refl ->
+                let res :
+                    (( c,
+                       state:(int, repr) dom -> (a * int, repr) dom )
+                     continuation ->
+                    state:(int, repr) dom ->
+                    (a * int, repr) dom)
+                    option =
+                  get_h tag
+                in
+                res
+            | None -> None)
+        | Put (state, tag') -> (
+            match eqb_tag tag tag' with
+            | Some Refl -> put_h state tag
+            | None -> None)
         | _ -> None);
   }
 
@@ -182,15 +244,40 @@ let state_h (type a) : (a, state:v -> a * v) handler =
  * Adding first-class functions
  *)
 
+type _ ty =
+  | Ity : int ty
+  | Bty : bool ty
+  | Fty : ('a ty * 'b ty) -> ('a -> 'b) ty
+
+let rec eqb_ty : type a b. a ty -> b ty -> (a, b) refl option =
+ fun x y ->
+  match x with
+  | Ity -> ( match y with Ity -> Some Refl | _ -> None)
+  | Bty -> ( match y with Bty -> Some Refl | _ -> None)
+  | Fty (a1, a2) -> (
+      match y with
+      | Fty (b1, b2) -> (
+          match (eqb_ty a1 b1, eqb_ty a2 b2) with
+          | Some Refl, Some Refl -> Some Refl
+          | _, _ -> None)
+      | _ -> None)
+
+type _ var = TVar : (string * 'a ty) -> 'a var
+type _ entry = Ent : ('a var * ('a, 'repr) dom) -> 'repr entry
+
 type _ Effect.t +=
-  | Var : (string * 'dom tag) -> 'dom Effect.t
-  | Lam : (string * ('dom tag -> 'dom) * 'dom tag) -> 'dom Effect.t
-  | App : ('dom * 'dom * 'dom tag) -> ('dom tag -> 'dom) Effect.t
+  | Var : ('a var * 'repr tag) -> ('a, 'repr) dom Effect.t
+  | Lam :
+      ('a var * ('repr tag -> ('b, 'repr) dom) * 'repr tag)
+      -> ('a -> 'b, 'repr) dom Effect.t
+  | App :
+      (('a -> 'b, 'repr) dom * ('a, 'repr) dom * 'repr tag)
+      -> ('repr tag -> ('b, 'repr) dom) Effect.t
 
-let var x (tag : 'dom tag) = perform (Var (x, tag))
-let lam x body (tag : 'dom tag) = perform (Lam (x, body, tag))
+let var x ty (tag : 'repr tag) = perform (Var (TVar (x, ty), tag))
+let lam x ty body (tag : 'repr tag) = perform (Lam (TVar (x, ty), body, tag))
 
-let ( $$ ) fn arg : 'dom tag -> 'dom =
+let ( $$ ) fn arg : 'repr tag -> ('b, 'repr) dom =
  fun tag ->
   let fn = fn tag in
   let arg = arg tag in
@@ -201,21 +288,31 @@ module TLam = struct
     let module M = TInc in
     M.res (* earlier term*)
 
-  let res0 : type dom. dom tag -> dom = fun tag -> lam "x" (var "x" + int 1) tag
-  let res01 : type dom. dom tag -> dom = fun tag -> (res0 $$ tinc) tag
+  let res0 : type repr. repr tag -> (int -> int, repr) dom =
+   fun tag -> lam "x" Ity (var "x" Ity + int 1) tag
 
-  let res1 : type dom. dom tag -> dom =
+  let res01 : type repr. repr tag -> (int, repr) dom =
+   fun tag -> (res0 $$ tinc) tag
+
+  let res1 : type repr. repr tag -> (int -> int -> int, repr) dom =
    fun tag ->
-    lam "x"
-      (lam "y" @@ cond (eq (var "x") (var "y")) (var "x") (var "y" + int 1))
+    lam "x" Ity
+      (lam "y" Ity
+      @@ cond
+           (eq (var "x" Ity) (var "y" Ity))
+           (var "x" Ity)
+           (var "y" Ity + int 1))
       tag
 
-  let res11 : type dom. dom tag -> dom = fun tag -> (res1 $$ int 1 $$ int 2) tag
+  let res11 : type repr. repr tag -> (int, repr) dom =
+   fun tag -> (res1 $$ int 1 $$ int 2) tag
 
   (* Higher-order functions *)
-  let res2 : type dom. dom tag -> dom =
+  let res2 : type repr. repr tag -> (int, repr) dom =
    fun tag ->
-    (lam "z" (lam "x" (var "z" $$ var "x"))
+    (lam "z"
+       (Fty (Ity, Ity))
+       (lam "x" Ity (var "z" (Fty (Ity, Ity)) $$ var "x" Ity))
     $$ (res1 $$ int 1)
     $$ (* partial application of res1 *)
     int 2)
@@ -224,72 +321,122 @@ end
 
 (* Implementation: lexical scope, call-by-value, left-to-right *)
 
-let rec lookup : string -> (string * 'b) list -> 'b =
- fun x l ->
+let rec lookup : type a repr. a var -> repr entry list -> (a, repr) dom =
+ fun (TVar (x, ty)) l ->
   match l with
   | [] -> failwith @@ "unbound variable " ^ x
-  | (h, v) :: _ when String.(x = h) -> v
-  | _ :: t -> lookup x t
+  | Ent (TVar (h, ty'), v) :: t when String.(x = h) -> (
+      match eqb_ty ty ty' with
+      | Some Refl -> v
+      | None -> lookup (TVar (x, ty)) t)
+  | _ :: t -> lookup (TVar (x, ty)) t
 
-type env = (string * v) list
-type v += VClos : (string * (v tag -> v) * env) -> v
+type 'repr env = 'repr entry list
 
 let var_h :
-    type a dom.
-    string ->
-    dom tag ->
-    ((dom, env:env -> a) continuation -> env:env -> a) option =
+    type a b repr.
+    b var ->
+    repr tag ->
+    (((b, repr) dom, env:repr env -> (a, repr) dom) continuation ->
+    env:repr env ->
+    (a, repr) dom)
+    option =
  fun x ->
-  if debug.get () then Printf.printf "Handle Var %s\n" x;
+  let () =
+    if debug.get () then
+      let (TVar (x, _)) = x in
+      Printf.printf "Handle Var %s\n" x
+  in
 
   function
-  | V -> Some (fun k ~env -> continue k (lookup x env) ~env) | _ -> None
+  | Pure_tag -> Some (fun k ~env -> continue k (lookup x env) ~env) | _ -> None
 
 let lam_h :
-    type a dom.
-    string ->
-    (dom tag -> dom) ->
-    dom tag ->
-    ((dom, env:env -> a) continuation -> env:env -> a) option =
- fun x body ->
-  if debug.get () then Printf.printf "Handle λ %s. _\n" x;
+    type a b c repr.
+    ((c, repr) dom, env:repr env -> (c, repr) dom) handler ->
+    b var ->
+    (repr tag -> (c, repr) dom) ->
+    repr tag ->
+    (((b -> c, repr) dom, env:repr env -> (a, repr) dom) continuation ->
+    env:repr env ->
+    (a, repr) dom)
+    option =
+ fun env_h x body ->
+  let () =
+    if debug.get () then
+      let (TVar (x, _)) = x in
+      Printf.printf "Handle λ %s. _\n" x
+  in
 
   function
-  | V -> Some (fun k ~env -> continue k (VClos (x, body, env)) ~env) | _ -> None
+  | Pure_tag ->
+      Some
+        (fun k ~env ->
+          continue k
+            (Pure
+               (fun v ->
+                 let env' = Ent (x, Pure v) :: env in
+                 let (ret : (c, pure) dom) =
+                   match_with body Pure_tag env_h ~env:env'
+                 in
+                 match ret with Pure ret -> ret | _ -> assert false))
+            ~env)
+  | _ -> None
 
 let app_h :
-    type a dom.
-    (dom, env:env -> dom) handler ->
-    dom ->
-    dom ->
-    dom tag ->
-    ((dom tag -> dom, env:env -> a) continuation -> env:env -> a) option =
- fun env_h fn arg ->
+    type a b c repr.
+    (b -> c, repr) dom ->
+    (b, repr) dom ->
+    repr tag ->
+    ((repr tag -> (c, repr) dom, env:repr env -> (a, repr) dom) continuation ->
+    env:repr env ->
+    (a, repr) dom)
+    option =
+ fun fn arg ->
   if debug.get () then Printf.printf "Handle App\n";
 
   function
-  | V ->
+  | Pure_tag ->
       Some
         (fun k ~env ->
           match fn with
-          | VClos (x, body, local_env) ->
-              let arg : v = arg in
-              let env' = (x, arg) :: local_env in
-              let v tag : v = match_with body tag env_h ~env:env' in
+          | Pure fn ->
+              let arg = match arg with Pure arg -> arg | _ -> assert false in
+              let v _tag : (c, repr) dom = Pure (fn arg) in
               continue k v ~env
           | _ -> failwith "type error in app")
   | _ -> None
 
-let rec env_h : type a. (a, env:env -> a) handler =
+let rec env_h :
+    type a repr.
+    repr tag -> ((a, repr) dom, env:repr env -> (a, repr) dom) handler =
+ fun tag ->
   {
     retc = (fun v ~env:_ -> v);
     exnc = raise;
     effc =
       (fun (type c) (eff : c t) ->
         match eff with
-        | Var (x, tag) -> var_h x tag
-        | Lam (x, body, tag) -> lam_h x body tag
-        | App (fn, arg, tag) -> app_h env_h fn arg tag
+        | Var (x, tag') -> (
+            match eqb_tag tag tag' with
+            | Some Refl ->
+                let res :
+                    ((c, env:repr env -> (a, repr) dom) continuation ->
+                    env:repr env ->
+                    (a, repr) dom)
+                    option =
+                  var_h x tag
+                in
+                res
+            | None -> None)
+        | Lam (x, body, tag') -> (
+            match eqb_tag tag tag' with
+            | Some Refl -> lam_h (env_h tag) x body tag
+            | None -> None)
+        | App (fn, arg, tag') -> (
+            match eqb_tag tag tag' with
+            | Some Refl -> app_h fn arg tag
+            | None -> None)
         | _ -> None);
   }
 
@@ -301,46 +448,71 @@ let rec env_h : type a. (a, env:env -> a) handler =
  * Higher-order plus State: combining the existing features
  *)
 module TLamSt = struct
-  let incf : type dom. dom tag -> dom =
+  let incf : type repr. repr tag -> (int -> int, repr) dom =
     let module M = TLam in
     M.res0 (* increment function *)
 
-  let incs : type dom. dom tag -> dom = fun tag -> put (incf $$ get) tag
+  let incs : type repr. repr tag -> (int, repr) dom =
+   fun tag -> put (incf $$ get) tag
 
   (* incf but counting the invocation in the state *)
   (* λx.(λ_.x + 10) incs *)
-  let incf : type dom. dom tag -> dom =
-   fun tag -> lam "x" (lam "_" (var "x" + int 10) $$ incs) tag
+  let incf : type repr. repr tag -> (int -> int, repr) dom =
+   fun tag -> lam "x" Ity (lam "_" Ity (var "x" Ity + int 10) $$ incs) tag
 
   (* λf.λz.f (f z) *)
-  let c2 : type dom. dom tag -> dom =
-   fun tag -> lam "f" (lam "z" (var "f" $$ (var "f" $$ var "z"))) tag
+  let c2 : type repr. repr tag -> ((int -> int) -> int -> int, repr) dom =
+   fun tag ->
+    lam "f"
+      (Fty (Ity, Ity))
+      (lam "z" Ity
+         (var "f" (Fty (Ity, Ity)) $$ (var "f" (Fty (Ity, Ity)) $$ var "z" Ity)))
+      tag
 
-  let res : type dom. dom tag -> dom =
+  let res : type repr. repr tag -> (int, repr) dom =
    fun tag -> ((c2 $$ incf $$ int 100) + get) tag
 end
 
-let eval_h : ('a, 'a) handler =
+let eval_h : type a repr. repr tag -> ((a, repr) dom, (a, repr) dom) handler =
+ fun tag ->
   {
     retc = (fun v -> v);
     exnc = raise;
     effc =
       (fun (type c) (eff : c t) ->
         match eff with
-        | Int (i, tag) -> int_h i tag
-        | Add (x, y, tag) -> add_h x y tag
-        | Eq (x, y, tag) -> eq_h x y tag
-        | Cond (pred, con, alt, tag) -> cond_h pred con alt tag
+        | Int (i, tag') -> (
+            match eqb_tag tag tag' with
+            | Some Refl ->
+                let res :
+                    ((c, (a, repr) dom) continuation -> (a, repr) dom) option =
+                  int_h i tag
+                in
+                res
+            | None -> None)
+        | Add (x, y, tag') -> (
+            match eqb_tag tag tag' with
+            | Some Refl -> add_h x y tag
+            | None -> None)
+        | Eq (x, y, tag') -> (
+            match eqb_tag tag tag' with
+            | Some Refl -> eq_h x y tag
+            | None -> None)
+        | Cond (pred, con, alt, tag') -> (
+            match eqb_tag tag tag' with
+            | Some Refl -> cond_h pred con alt tag
+            | None -> None)
         | _ -> None);
   }
 
-let eval (type dom) (tag : dom tag) (e : dom tag -> dom) : dom =
+let eval (type a repr) (tag : repr tag) (state : (int, repr) dom)
+    (e : repr tag -> (a, repr) dom) =
   let env = [] in
-  let state = VInt 0 in
   let comp = e in
-  let comp x = match_with comp x eval_h in
-  let comp x = match_with comp x state_h ~state in
-  let comp x = match_with comp x env_h ~env in
-  fst (comp tag)
+  let comp x = match_with comp x (eval_h tag) in
+  let comp x = match_with comp x (state_h tag) ~state in
+  let comp x = match_with comp x (env_h tag) ~env in
+  comp tag
 
-let eval_v = eval V
+let eval_v e =
+  match eval Pure_tag (Pure 0) e with Pure (x, _) -> x | _ -> assert false

@@ -1,2 +1,5 @@
 (test
- (name test_EDSLNG))
+ (name test_EDSLNG)
+ (flags
+   (:standard -w -8))
+ (libraries EDSLNG))
