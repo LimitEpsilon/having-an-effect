@@ -7,16 +7,11 @@ open Effect.Deep
 
 type (_, _) refl = Refl : ('a, 'a) refl
 type pure = Pure_ty
-type (_, _) dom = ..
-type (_, _) dom += Pure : 'a -> ('a, pure) dom
-type _ tag = ..
-type _ tag += Pure_tag : pure tag
+type (_, _) dom = Pure : 'a -> ('a, pure) dom
+type _ tag = Pure_tag : pure tag
 
 let eqb_tag : type a b. a tag -> b tag -> (a, b) refl option =
- fun x y ->
-  match x with
-  | Pure_tag -> ( match y with Pure_tag -> Some Refl | _ -> None)
-  | _ -> None
+ fun x y -> match x with Pure_tag -> ( match y with Pure_tag -> Some Refl)
 
 (*
  * ------------------------------------------------------------------------
@@ -51,7 +46,7 @@ let int_h :
  fun i ->
   if debug.get () then Printf.printf "Handle Int %d\n" i;
 
-  function Pure_tag -> Some (fun k -> continue k (Pure i)) | _ -> None
+  function Pure_tag -> Some (fun k -> continue k (Pure i))
 
 let add_h :
     type a repr.
@@ -66,10 +61,7 @@ let add_h :
   | Pure_tag ->
       Some
         (fun k ->
-          match (x, y) with
-          | Pure x, Pure y -> continue k (Pure Int.(x + y))
-          | _, _ -> raise @@ Invalid_argument "Not expected tag")
-  | _ -> None
+          match (x, y) with Pure x, Pure y -> continue k (Pure Int.(x + y)))
 
 (*
  * ------------------------------------------------------------------------
@@ -118,10 +110,7 @@ let eq_h :
   | Pure_tag ->
       Some
         (fun k ->
-          match (x, y) with
-          | Pure x, Pure y -> continue k (Pure Int.(x = y))
-          | _, _ -> failwith "unexpected tag")
-  | _ -> None
+          match (x, y) with Pure x, Pure y -> continue k (Pure Int.(x = y)))
 
 let cond_h :
     type a res repr.
@@ -140,9 +129,7 @@ let cond_h :
         (fun k ->
           match pred with
           | Pure true -> continue k con
-          | Pure false -> continue k alt
-          | _ -> failwith "cond type error")
-  | _ -> None
+          | Pure false -> continue k alt)
 
 (* * ------------------------------------------------------------------------ *
    Adding state *)
@@ -182,7 +169,6 @@ let get_h :
       if debug.get () then Printf.printf "Handle Get\n";
 
       Some (fun k ~state -> continue k state ~state)
-  | _ -> None
 
 let put_h :
     type a repr.
@@ -197,15 +183,12 @@ let put_h :
  fun v ->
   if debug.get () then Printf.printf "Handle Put\n";
 
-  function
-  | Pure_tag -> Some (fun k ~state:_ -> continue k v ~state:v) | _ -> None
+  function Pure_tag -> Some (fun k ~state:_ -> continue k v ~state:v)
 
 let dom_tuple (type repr a b) (r : repr tag) (x : (a, repr) dom)
     (y : (b, repr) dom) : (a * b, repr) dom =
   match r with
-  | Pure_tag -> (
-      match (x, y) with Pure x, Pure y -> Pure (x, y) | _, _ -> assert false)
-  | _ -> assert false
+  | Pure_tag -> ( match (x, y) with Pure x, Pure y -> Pure (x, y))
 
 let state_h :
     type a repr.
@@ -348,8 +331,7 @@ let var_h :
       Printf.printf "Handle Var %s\n" x
   in
 
-  function
-  | Pure_tag -> Some (fun k ~env -> continue k (lookup x env) ~env) | _ -> None
+  function Pure_tag -> Some (fun k ~env -> continue k (lookup x env) ~env)
 
 let lam_h :
     type a b c repr.
@@ -379,9 +361,8 @@ let lam_h :
                  let (ret : (c, pure) dom) =
                    match_with body Pure_tag env_h ~env:env'
                  in
-                 match ret with Pure ret -> ret | _ -> assert false))
+                 match ret with Pure ret -> ret))
             ~env)
-  | _ -> None
 
 let app_h :
     type a b c repr.
@@ -401,11 +382,9 @@ let app_h :
         (fun k ~env ->
           match fn with
           | Pure fn ->
-              let arg = match arg with Pure arg -> arg | _ -> assert false in
+              let arg = match arg with Pure arg -> arg in
               let v _tag : (c, repr) dom = Pure (fn arg) in
-              continue k v ~env
-          | _ -> failwith "type error in app")
-  | _ -> None
+              continue k v ~env)
 
 let rec env_h :
     type a repr.
@@ -514,5 +493,4 @@ let eval (type a repr) (tag : repr tag) (state : (int, repr) dom)
   let comp x = match_with comp x (env_h tag) ~env in
   comp tag
 
-let eval_v e =
-  match eval Pure_tag (Pure 0) e with Pure (x, _) -> x | _ -> assert false
+let eval_v e = match eval Pure_tag (Pure 0) e with Pure (x, _) -> x
