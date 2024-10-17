@@ -246,7 +246,7 @@ let rec eqb_ty : type a b. a ty -> b ty -> (a, b) refl option =
       | _ -> None)
 
 type _ var = TVar : (string * 'a ty) -> 'a var
-type _ entry = Ent : ('a var * ('a, 'repr) dom) -> 'repr entry
+type entry = Ent : ('a var * 'a) -> entry
 
 type _ Effect.t +=
   | Var : ('a var * 'repr tag) -> ('a, 'repr) dom Effect.t
@@ -304,7 +304,7 @@ end
 
 (* Implementation: lexical scope, call-by-value, left-to-right *)
 
-let rec lookup : type a repr. a var -> repr entry list -> (a, repr) dom =
+let rec lookup : type a repr. a var -> entry list -> a =
  fun (TVar (x, ty)) l ->
   match l with
   | [] -> failwith @@ "unbound variable " ^ x
@@ -314,7 +314,7 @@ let rec lookup : type a repr. a var -> repr entry list -> (a, repr) dom =
       | None -> lookup (TVar (x, ty)) t)
   | _ :: t -> lookup (TVar (x, ty)) t
 
-type 'repr env = 'repr entry list
+type _ env = Pure_env : entry list -> pure env
 
 let var_h :
     type a b repr.
@@ -331,7 +331,12 @@ let var_h :
       Printf.printf "Handle Var %s\n" x
   in
 
-  function Pure_tag -> Some (fun k ~env -> continue k (lookup x env) ~env)
+  function
+  | Pure_tag ->
+      Some
+        (fun k ~env ->
+          let (Pure_env env) = env in
+          continue k (Pure (lookup x env)) ~env:(Pure_env env))
 
 let lam_h :
     type a b c repr.
@@ -357,9 +362,10 @@ let lam_h :
           continue k
             (Pure
                (fun v ->
-                 let env' = Ent (x, Pure v) :: env in
+                 let (Pure_env env) = env in
+                 let env' = Ent (x, v) :: env in
                  let (ret : (c, pure) dom) =
-                   match_with body Pure_tag env_h ~env:env'
+                   match_with body Pure_tag env_h ~env:(Pure_env env')
                  in
                  match ret with Pure ret -> ret))
             ~env)
@@ -484,13 +490,13 @@ let eval_h : type a repr. repr tag -> ((a, repr) dom, (a, repr) dom) handler =
         | _ -> None);
   }
 
-let eval (type a repr) (tag : repr tag) (state : (int, repr) dom)
-    (e : repr tag -> (a, repr) dom) =
-  let env = [] in
+let eval (type a repr) (tag : repr tag) (env : repr env)
+    (state : (int, repr) dom) (e : repr tag -> (a, repr) dom) =
   let comp = e in
   let comp x = match_with comp x (eval_h tag) in
   let comp x = match_with comp x (state_h tag) ~state in
   let comp x = match_with comp x (env_h tag) ~env in
   comp tag
 
-let eval_v e = match eval Pure_tag (Pure 0) e with Pure (x, _) -> x
+let eval_v e =
+  match eval Pure_tag (Pure_env []) (Pure 0) e with Pure (x, _) -> x
