@@ -155,7 +155,8 @@ let mem_h :
                             }
                         in
                         continue k
-                          (fun () -> perform @@ Fulfill_mem (ticket, v (), m))
+                          (fun () ->
+                            perform @@ Fulfill_mem (ticket, await v, m))
                           ~st ~upd:upd')
             | None -> None)
         | Check_mem (ticket, addr, m') -> (
@@ -173,7 +174,7 @@ let mem_h :
                             in
                             print_endline @@ "Check with ticket " ^ t
                         in
-                        if Ticket.(ticket < pending_r) then
+                        if Ticket.(ticket + one = pending_r) then
                           match st with
                           | Mem_st { mem_st; _ } ->
                               let m : (Addr.t * m) list = mem_st in
@@ -279,7 +280,8 @@ let reg_h :
                             }
                         in
                         continue k
-                          (fun () -> perform @@ Fulfill_reg (ticket, v (), r))
+                          (fun () ->
+                            perform @@ Fulfill_reg (ticket, await v, r))
                           ~st ~upd:upd')
             | None -> None)
         | Check_reg (t, r') -> (
@@ -297,7 +299,7 @@ let reg_h :
                             in
                             print_endline @@ "Check with ticket " ^ t
                         in
-                        if Ticket.(t <= pending_r) then
+                        if Ticket.(t = pending_r) then
                           match st with
                           | Reg_st { reg_st; _ } ->
                               let r : r = reg_st in
@@ -321,6 +323,95 @@ let reg_h :
                         let upd' = Reg_upd { pending_r; pending_w; ticket } in
                         continue k () ~st ~upd:upd')
             | None -> None)
+        | _ -> None);
+  }
+
+let fulfill_add1 (a : (Ticket.t * int option * int option) list) (t : Ticket.t)
+    (v : int) =
+  let rec go seen = function
+    | [] -> List.rev seen
+    | (ticket, _, o2) :: unseen when Ticket.(t = ticket) ->
+        perform More;
+        List.rev_append seen ((ticket, Some v, o2) :: unseen)
+    | hd :: unseen -> go (hd :: seen) unseen
+  in
+  go [] a
+
+let fulfill_add2 (a : (Ticket.t * int option * int option) list) (t : Ticket.t)
+    (v : int) =
+  let rec go seen = function
+    | [] -> List.rev seen
+    | (ticket, o1, _) :: unseen when Ticket.(t = ticket) ->
+        perform More;
+        List.rev_append seen ((ticket, o1, Some v) :: unseen)
+    | hd :: unseen -> go (hd :: seen) unseen
+  in
+  go [] a
+
+let check_add (a : (Ticket.t * int option * int option) list) (t : Ticket.t) =
+  let rec go seen = function
+    | [] -> (List.rev seen, None)
+    | (ticket, Some v1, Some v2) :: unseen when Ticket.(t = ticket) ->
+        perform More;
+        (List.rev_append seen unseen, Some Int.(v1 + v2))
+    | hd :: unseen -> go (hd :: seen) unseen
+  in
+  go [] a
+
+let add_h :
+    type a.
+    ( a,
+      st:adder storage -> upd:adder update -> a * adder storage * adder update
+    )
+    handler =
+  {
+    retc = (fun v ~st ~upd -> (v, st, upd));
+    exnc = raise;
+    effc =
+      (fun (type c) (eff : c t) ->
+        match eff with
+        | Add (x, y) ->
+            Some
+              (fun (k : (c, _) continuation) ~st ~upd ->
+                let (Adder_upd { pending_op; ticket }) = upd in
+                let upd =
+                  Adder_upd
+                    {
+                      pending_op = (ticket, None, None) :: pending_op;
+                      ticket = Ticket.(succ ticket);
+                    }
+                in
+                let worker () =
+                  let op1 () = perform @@ Fulfill_add1 (ticket, await x) in
+                  let op2 () = perform @@ Fulfill_add2 (ticket, await y) in
+                  schedule op1;
+                  schedule op2
+                in
+                let checker () = perform @@ Check_add ticket in
+                continue k (worker, checker) ~st ~upd)
+        | Fulfill_add1 (t, x) ->
+            Some
+              (fun (k : (c, _) continuation) ~st ~upd ->
+                let (Adder_upd { pending_op; ticket }) = upd in
+                let upd =
+                  Adder_upd { pending_op = fulfill_add1 pending_op t x; ticket }
+                in
+                continue k () ~st ~upd)
+        | Fulfill_add2 (t, y) ->
+            Some
+              (fun (k : (c, _) continuation) ~st ~upd ->
+                let (Adder_upd { pending_op; ticket }) = upd in
+                let upd =
+                  Adder_upd { pending_op = fulfill_add2 pending_op t y; ticket }
+                in
+                continue k () ~st ~upd)
+        | Check_add t ->
+            Some
+              (fun (k : (c, _) continuation) ~st ~upd ->
+                let (Adder_upd { pending_op; ticket }) = upd in
+                let pending_op, found = check_add pending_op t in
+                let upd = Adder_upd { pending_op; ticket } in
+                continue k found ~st ~upd)
         | _ -> None);
   }
 
@@ -451,6 +542,7 @@ let update_storage :
               ( Reg_st { reg_st = v; reg_tag },
                 Reg_upd { pending_r; pending_w; ticket } )
           | _ -> (st, upd)))
+  | Adder_st -> (st, upd)
   | Warp_st _ -> (
       match upd with
       | Warp_upd { voted; nth_election } -> (
@@ -492,6 +584,9 @@ let rec step_arch (arch : exec arch) =
           Mk_arch { st; upd; children }
       | Reg_st { reg_tag; _ } ->
           let children, st, upd = match_with exec () (reg_h reg_tag) ~st ~upd in
+          Mk_arch { st; upd; children }
+      | Adder_st ->
+          let children, st, upd = match_with exec () add_h ~st ~upd in
           Mk_arch { st; upd; children }
       | Warp_st _ ->
           let children, st, upd = match_with exec () warp_h ~st ~upd in

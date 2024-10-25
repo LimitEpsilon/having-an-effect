@@ -72,12 +72,15 @@ type inst =
 [@@deriving sexp_of]
 
 type _ mem = Imem : inst mem | Dmem : int mem [@@deriving sexp_of]
+type adder = Adder [@@deriving sexp_of]
 type warp = Warp [@@deriving sexp_of]
+type process = unit -> unit [@@deriving sexp_of]
 type 'a promise = unit -> 'a option [@@deriving sexp]
 
 type _ storage =
   | Mem_st : { mem_st : (Addr.t * 'a) list; mem_tag : 'a mem } -> 'a mem storage
   | Reg_st : { reg_st : 'a; reg_tag : 'a reg } -> 'a reg storage
+  | Adder_st : adder storage
   | Warp_st : {
       warp_pc : Addr.t option;
       decode_req : inst promise;
@@ -85,6 +88,62 @@ type _ storage =
       -> warp storage
 
 type _ loc = Mem : (Addr.t * 'a mem) -> 'a loc | Reg : 'a reg -> 'a loc
+[@@deriving sexp_of]
+
+(** Defunctionalize *)
+type fn = Cycle [@@deriving sexp_of]
+
+type _ ty =
+  | Tyi : int ty
+  | Regi : int reg ty
+  | Tyb : bool ty
+  | Tya : Addr.t ty
+  | Rega : Addr.t reg ty
+[@@deriving sexp_of]
+
+type 'a var = string * 'a ty [@@deriving sexp_of]
+type 'a value = 'a * 'a ty [@@deriving sexp_of]
+
+type (_, _, _) bop =
+  | Add : (int, int, int) bop
+  | Eqb : (int, int, bool) bop
+  | Ltb : (int, int, bool) bop
+[@@deriving sexp_of]
+
+type _ expr = Var : 'a var -> 'a expr | Val : 'a value -> 'a expr
+[@@deriving sexp_of]
+
+type _ que =
+  | Read_mem : { src : Addr.t expr * 'a mem } -> 'a que
+  | Read_reg : { src : 'a reg expr } -> 'a que
+  | Write_mem : { dst : Addr.t expr * 'a mem; data : 'a expr } -> unit que
+  | Write_reg : { dst : 'a reg expr; data : 'a expr } -> unit que
+  | Bop : { op : ('a, 'b, 'c) bop; lop : 'a expr; rop : 'b expr } -> 'c que
+  | Vote : { tgt : pc expr } -> unit que
+  | Decode : { tgt : pc expr } -> inst option que
+[@@deriving sexp_of]
+
+type (_, _) branch =
+  | Br_cont : { cont : 'a var * 'itree } -> ('a, 'itree) branch
+  | Br_if : { con : 'itree; alt : 'itree } -> (bool, 'itree) branch
+  | Br_dec : {
+      none : 'itree;
+      add : int reg var * int reg var * int reg var * 'itree;
+      addi : int reg var * int reg var * int var * 'itree;
+      ld : int reg var * Addr.t var * int reg var * 'itree;
+      st : Addr.t var * int reg var * int reg var * 'itree;
+      beq : int reg var * int reg var * Addr.t var * 'itree;
+      blt : int reg var * int reg var * Addr.t var * 'itree;
+      halt : 'itree;
+    }
+      -> (inst option, 'itree) branch
+[@@deriving sexp_of]
+
+type itree =
+  | Ret : 'a expr -> itree
+  | Call : fn -> itree
+  | Unanswered : { ask : 'a que; cont : ('a, itree) branch } -> itree
+  | Answered : { ask : 'a que; ans : 'a; cont : itree } -> itree
 [@@deriving sexp_of]
 
 type _ update =
@@ -107,6 +166,11 @@ type _ update =
       ticket : Ticket.t;
     }
       -> 'a reg update
+  | Adder_upd : {
+      pending_op : (Ticket.t * int option * int option) list;
+      ticket : Ticket.t;
+    }
+      -> adder update
   | Warp_upd : {
       voted : (Addr.t * int * inst promise) list;
       nth_election : Ticket.t;
@@ -114,7 +178,7 @@ type _ update =
       -> warp update
 
 type task =
-  | Initial : (unit -> unit) -> task
+  | Initial : process -> task
   | Suspended : (('a, task list) continuation * 'a promise) -> task
 
 (* memory hierarchy / architecture *)
@@ -131,7 +195,10 @@ type exec = Arch : exec arch list -> exec | Exec : task list -> exec
 (* read-write events *)
 type _ Effect.t +=
   | Read : 'a loc -> 'a promise t
-  | Write : ('a loc * (unit -> 'a)) -> (unit -> unit) t
+  | Write : ('a loc * 'a promise) -> process t
+
+type _ Effect.t +=
+  | Add : (int promise * int promise) -> (process * int promise) t
 
 (* warp schedule *)
 type _ Effect.t +=
@@ -141,7 +208,7 @@ type _ Effect.t +=
 (* task schedule *)
 type _ Effect.t +=
   | Await : 'a promise -> 'a t
-  | Schedule : (unit -> unit) -> unit t
+  | Schedule : process -> unit t
   | More : unit t (* unstable, do more *)
 
 (* check/fulfill promise *)
@@ -150,15 +217,19 @@ type _ Effect.t +=
   | Fulfill_mem : (Ticket.t * 'a * 'a mem) -> unit t
   | Check_reg : (Ticket.t * 'a reg) -> 'a option t
   | Fulfill_reg : (Ticket.t * 'a * 'a reg) -> unit t
+  | Check_add : Ticket.t -> int option t
+  | Fulfill_add1 : (Ticket.t * int) -> unit t
+  | Fulfill_add2 : (Ticket.t * int) -> unit t
   | Check_ballot : Ticket.t -> unit option t
 
 let read (type a) (s : a loc) : a promise = perform @@ Read s
 
-let write (type a) (s : a loc) (x : unit -> a) : unit -> unit =
+let write (type a) (s : a loc) (x : a promise) : process =
   perform @@ Write (s, x)
 
+let add x y = perform @@ Add (x, y)
 let await (type a) (prm : a promise) : a = perform @@ Await prm
-let schedule (type a) (t : unit -> unit) : unit = perform @@ Schedule t
+let schedule (type a) (t : process) : unit = perform @@ Schedule t
 let vote (pc : Addr.t) : unit promise = perform @@ Vote pc
 let decode (pc : Addr.t) : inst promise option = perform @@ Decode pc
 
@@ -226,6 +297,10 @@ let sexp_of_reg_storage (type r) (st : r reg storage) : Sexp.t =
       let sexp_of_v : r -> Sexp.t = sexp_of_reg_v reg_tag in
       List [ Atom "Reg_st"; sexp_of_v reg_st; sexp_of_reg sexp_of_v reg_tag ]
 
+let sexp_of_adder_storage (st : adder storage) : Sexp.t =
+  let open Sexp in
+  match st with Adder_st -> Atom "Adder_st"
+
 let sexp_of_warp_storage (st : warp storage) : Sexp.t =
   let open Sexp in
   match st with
@@ -241,6 +316,7 @@ let sexp_of_storage (type s) (st : s storage) : Sexp.t =
   match st with
   | Mem_st _ -> sexp_of_mem_storage st
   | Reg_st _ -> sexp_of_reg_storage st
+  | Adder_st -> sexp_of_adder_storage st
   | Warp_st _ -> sexp_of_warp_storage st
 
 let sexp_of_mem_pending_w (type m) (tag : m mem) =
@@ -291,6 +367,29 @@ let sexp_of_warp_voted =
   in
   sexp_of_list sexp_of_entry
 
+let sexp_of_pending_op =
+  let open Sexp in
+  let sexp_of_entry (t, op1, op2) =
+    List
+      [
+        Ticket.sexp_of_t t;
+        sexp_of_option Int.sexp_of_t op1;
+        sexp_of_option Int.sexp_of_t op2;
+      ]
+  in
+  sexp_of_list sexp_of_entry
+
+let sexp_of_adder_update (upd : adder update) =
+  let open Sexp in
+  match upd with
+  | Adder_upd { pending_op; ticket } ->
+      List
+        [
+          Atom "Adder_upd";
+          List [ Atom "pending_op"; sexp_of_pending_op pending_op ];
+          List [ Atom "ticket"; Ticket.sexp_of_t ticket ];
+        ]
+
 let sexp_of_warp_update (upd : warp update) =
   let open Sexp in
   match upd with
@@ -306,6 +405,7 @@ let sexp_of_update (type s) (tag : s) (upd : s update) =
   match upd with
   | Mem_upd _ -> sexp_of_mem_update tag upd
   | Reg_upd _ -> sexp_of_reg_update tag upd
+  | Adder_upd _ -> sexp_of_adder_update upd
   | Warp_upd _ -> sexp_of_warp_update upd
 
 let sexp_of_task (t : task) : Sexp.t =
@@ -330,6 +430,14 @@ let sexp_of_arch (type exec) (sexp_of_exec : exec -> Sexp.t) (arch : exec arch)
               Atom "Arch";
               List [ Atom "st"; sexp_of_storage st ];
               List [ Atom "upd"; sexp_of_update reg_tag upd ];
+              List [ Atom "children"; sexp_of_exec children ];
+            ]
+      | Adder_st ->
+          List
+            [
+              Atom "Arch";
+              List [ Atom "st"; sexp_of_storage st ];
+              List [ Atom "upd"; sexp_of_update Adder upd ];
               List [ Atom "children"; sexp_of_exec children ];
             ]
       | Warp_st _ ->

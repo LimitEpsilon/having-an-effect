@@ -4,6 +4,16 @@ open Core
 
 let () = debug.set false
 
+let add_add =
+  let open Domains in
+  fun (type e) (l : e) ->
+    Mk_arch
+      {
+        st = Adder_st;
+        upd = Adder_upd { pending_op = []; ticket = Ticket.one };
+        children = l;
+      }
+
 let add_reg =
   let open Domains in
   fun (type r e) (r : r reg) init (l : e) ->
@@ -86,6 +96,7 @@ let () =
   let arch iter_num =
     let arch = Arch [ thread 0 iter_num; thread (2 * iter_num) iter_num ] in
     let arch = Arch [ add_warp arch ] in
+    let arch = Arch [ add_add arch ] in
     let arch = Arch [ add_mem Imem (loop iter_num) arch ] in
     add_mem Dmem (mem iter_num) arch
   in
