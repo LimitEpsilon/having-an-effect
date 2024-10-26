@@ -1,72 +1,27 @@
 From Coq Require Import ZArith List.
 Import ListNotations.
 
-Set Universe Polymorphism.
+Set Printing Universes.
 
-Module Int.
-Class t (T : Type) :=
-  {
-    one : T;
-    succ : T -> T;
-    add : T -> T -> T;
-    sub : T -> T -> T;
-    leb : T -> T -> bool;
-    geb : T -> T -> bool;
-    ltb : T -> T -> bool;
-    gtb : T -> T -> bool;
-    eqb : T -> T -> bool;
-  }.
+Section Int.
+  Universe int_u.
+  Definition int : Type@{int_u} := Z.
 End Int.
 
-Module Addr.
-Class t (I : Type) `{Int.t I} (T : Type) :=
-  {
-    one : T;
-    succ : T -> T;
-    add : T -> T -> T;
-    sub : T -> T -> T;
-    leb : T -> T -> bool;
-    geb : T -> T -> bool;
-    ltb : T -> T -> bool;
-    gtb : T -> T -> bool;
-    eqb : T -> T -> bool;
-    of_int : I -> T;
-  }.
+Section Bool.
+  Universe bool_u.
+  Definition bool : Type@{bool_u} := bool.
+End Bool.
+
+Section Addr.
+  Universe addr_u.
+  Definition addr : Type@{addr_u} := Z.
 End Addr.
 
-#[export] Instance IntZ : Int.t Z :=
-  {
-    one := 1%Z;
-    succ := Z.succ;
-    add := Z.add;
-    sub := Z.sub;
-    leb := Z.leb;
-    geb := Z.geb;
-    ltb := Z.ltb;
-    gtb := Z.gtb;
-    eqb := Z.eqb;
-  }.
-
-#[export, refine] Instance AddrZ : Addr.t Z Z :=
-  {
-    one := 1%Z;
-    succ := Z.succ;
-    add := Z.add;
-    sub := Z.sub;
-    leb := Z.leb;
-    geb := Z.geb;
-    ltb := Z.ltb;
-    gtb := Z.gtb;
-    eqb := Z.eqb;
-  }.
-Proof.
-  exact id.
-Defined.
-
-Definition int := Z.
-Definition addr := Z.
-
-Variant reg : Type -> Type :=
+Section Reg.
+  (* add here *)
+  Universe reg_u.
+  Variant reg : Type -> Type@{reg_u} :=
   | PC : reg addr
   | R0 : reg int (* always zero *)
   | R1 : reg int
@@ -100,9 +55,13 @@ Variant reg : Type -> Type :=
   | R29 : reg int
   | R30 : reg int
   | R31 : reg int
-.
+  .
+End Reg.
 
-Variant inst : Type :=
+Section Inst.
+  (* add here *)
+  Universe inst_u.
+  Variant inst : Type@{inst_u} :=
   | Inst_add (rd : reg int) (rs1 : reg int) (rs2 : reg int)
   (* add rd rs1 rs2 *)
   (* rd ← (rs1) + (rs2) *)
@@ -122,54 +81,96 @@ Variant inst : Type :=
   (* blt rs1 rs2 imm *)
   (* (pc') = if (rs1) < (rs2) then (pc) + imm else (pc) + 1 *)
   | Inst_halt
-.
+  .
+End Inst.
 
-Variant mem : Type -> Type :=
+Section Mem.
+  Universe mem_u.
+  Variant mem : Type -> Type@{mem_u} :=
   | Imem : mem inst
   | Dmem : mem int
-.
+  .
+End Mem.
 
-(** Defunctionalize *)
-(** Meaning : ∀ σ, itree σ *)
-Variant fn : Type :=
+Section Fn.
+  (** Defunctionalize *)
+  (** Meaning : ∀ γ, itree γ *)
+  (* add here *)
+  Universe fn_u.
+  Variant fn : Type@{fn_u} :=
   | Cycle
-.
+  .
+End Fn.
 
-Variant bop : Type -> Type -> Type -> Type :=
+Section Bop.
+  (* add here *)
+  Universe bop_u.
+  Variant bop : Type -> Type -> Type -> Type@{bop_u} :=
   | Bop_add : bop int int int
   | Bop_eqb : bop int int bool
   | Bop_ltb : bop int int bool
-.
+  .
+End Bop.
 
-Definition tyenv := list Type.
+Section Tyenv.
+  Universe tyenv_u.
+  Definition tyenv : Type@{tyenv_u} := list Type.
+End Tyenv.
 
-Inductive var : tyenv -> Type -> Type :=
+Section Assign.
+  Universe assign_u.
+  Definition assign : Type@{assign_u} := list {A & option A}.
+End Assign.
+
+Section Filter.
+  Universe filter_u.
+  Inductive filter : tyenv -> assign -> tyenv -> Type@{filter_u} :=
+  | Filter_nil : filter [] [] []
+  | Filter_cons_some A a γ σ γ'
+    (FILTER : filter γ σ γ')
+    : filter (A :: γ) (existT option A (Some a) :: σ) γ'
+  | Filter_cons_none A γ σ γ'
+    (FILTER : filter γ σ γ')
+    : filter (A :: γ) (existT option A None :: σ) (A :: γ')
+  .
+End Filter.
+
+Section Var.
+  Universe var_u.
+  Inductive var : tyenv -> Type -> Type@{var_u} :=
   | Var_hd {γ A} : var (A :: γ) A
-  | Var_tl {γ A B} (v : var γ B) : var (A :: γ) B
-.
+  | Var_tl {γ A B} (x : var γ B) : var (A :: γ) B
+  .
+End Var.
 
-Variant value {γ : tyenv} : Type -> Type :=
-  | Var {A} (v : var γ A) : value A
+Section Value.
+  Universe value_u.
+  Variant value {γ : tyenv} : Type -> Type@{value_u} :=
+  | Var {A} (x : var γ A) : value A
   | Val {A} (v : A) : value A
-.
+  .
+End Value.
 
-Arguments value : clear implicits.
+Section Eff.
+  (* add here *)
+  Universe eff_u.
+  Variant eff {γ : tyenv} : Type -> Type@{eff_u} :=
+  | Read_mem {A} (addr : @value γ addr) (mem : mem A) : eff A
+  | Read_reg {A} (reg : @value γ (reg A)) : eff A
+  | Write_mem {A} (addr : @value γ addr) (mem : mem A) (data : A) : eff unit
+  | Write_reg {A} (reg : @value γ (reg A)) (data : @value γ A) : eff A
+  | Bop {A B C} (op : bop A B C) (lop : @value γ A) (rop : @value γ B) : eff C
+  | Vote (tgt : @value γ addr) : eff unit
+  | Decode (tgt : @value γ addr) : eff (option inst)
+  .
+End Eff.
 
-Variant eff {γ : tyenv} : Type -> Type :=
-  | Read_mem {A} (addr : value γ addr) (mem : mem A) : eff A
-  | Read_reg {A} (reg : value γ (reg A)) : eff A
-  | Write_mem {A} (addr : value γ addr) (mem : mem A) (data : A) : eff unit
-  | Write_reg {A} (reg : value γ (reg A)) (data : value γ A) : eff A
-  | Bop {A B C} (op : bop A B C) (lop : value γ A) (rop : value γ B) : eff C
-  | Vote (tgt : value γ addr) : eff unit
-  | Decode (tgt : value γ addr) : eff (option inst)
-.
-
-Arguments eff : clear implicits.
-
-Variant branch (itree : tyenv -> Type) {γ : tyenv} : Type -> Type :=
-  | Br_cont {A} (cont : itree (A :: γ)) : branch itree A
-  | Br_if (con : itree γ) (alt : itree γ) : branch itree bool
+Section Branch.
+  (* add here *)
+  Universe branch_u.
+  Variant branch {itree : tyenv -> Type} {γ : tyenv} : Type -> Type@{branch_u} :=
+  | Br_cont {A} (cont : itree (A :: γ)) : branch A
+  | Br_if (con : itree γ) (alt : itree γ) : branch bool
   | Br_dec
     (none : itree γ)
     (add : itree (reg int :: reg int :: reg int :: γ))
@@ -179,126 +180,232 @@ Variant branch (itree : tyenv -> Type) {γ : tyenv} : Type -> Type :=
     (beq : itree (addr :: reg int :: reg int :: γ))
     (blt : itree (addr :: reg int :: reg int :: γ))
     (halt : itree γ)
-    : branch itree (option inst)
-.
+    : branch (option inst)
+  .
+End Branch.
 
-Arguments branch : clear implicits.
-
-(** γ : the context, not yet determined *)
-Inductive itree {γ : tyenv} : Type :=
-  | Ret {A} (v : value γ A) : itree
+Section Itree.
+  (** γ : the context, not yet determined *)
+  Universe itree_u.
+  Inductive itree {γ : tyenv} : Type@{itree_u} :=
+  | Ret {A} (v : @value γ A) : itree
   | Call (f : fn) : itree
-  | Unanswered {A} (que : eff γ A) (k : branch (@itree) γ A) : itree
-  | Answered {A} (que : eff γ A) (ans : A) (k : itree) : itree
-.
+  | Unanswered {A} (que : @eff γ A) (k : @branch (@itree) γ A) : itree
+  | Answered {A} (que : @eff γ A) (ans : A) (k : itree) : itree
+  .
+End Itree.
 
+Unset Printing Universes.
+
+Arguments value : clear implicits.
+Arguments eff : clear implicits.
+Arguments branch : clear implicits.
 Arguments itree : clear implicits.
-
-(* answer : branch itree σ A -> A -> itree σ *)
-(* for var σ A, either shift or change to value *)
-(* relation between σ and {A & option A} *)
-
-(*Definition entry := {A & option A}.*)
-(*Definition x : entry := existT option int None.*)
-
-Definition assign := list {A & option A}.
 
 Notation "'∃?' A x" := (existT option A x)
   (at level 10, A at next level, x at next level).
 
-Fixpoint unassigned (σ : assign) : tyenv :=
-  match σ with
-  | [] => []
-  | existT _ A None :: tl => A :: unassigned tl
-  | existT _ _ (Some _) :: tl => unassigned tl
-  end.
-
-Fixpoint tyenv_of_assign (σ : assign) : tyenv :=
-  match σ with
-  | [] => []
-  | t :: tl =>
-    let τ := match t with existT _ τ _ => τ end in
-    τ :: tyenv_of_assign tl
-  end.
-
-Fixpoint assign_of_tyenv (γ : tyenv) : assign :=
-  match γ with
-  | [] => []
-  | A :: tl => ∃? A None :: assign_of_tyenv tl
-  end.
-
-Lemma unassigned_assign γ : γ = unassigned (assign_of_tyenv γ).
+Definition empty_var {A B : Type} (x : var [] A) : B.
 Proof.
-  induction γ; simpl in *; f_equal; auto.
-Qed.
+  exfalso.
+  exact (match x in var γ τ 
+    return
+      match γ return Prop with
+      | [] => False
+      | _ :: _ => True
+      end
+  with
+  | Var_hd => I
+  | Var_tl _ => I
+  end).
+Defined.
 
-#[local] Definition add_dummy {γ A} B (v : value γ A) : value (B :: γ) A.
+Definition shift_value {γ A} B (v : value γ A) : value (B :: γ) A.
 Proof.
   destruct v.
-  - destruct γ.
-    + abstract (inversion v).
-    + refine (match v in var (_ :: _) _ with
-      | Var_hd => _ | Var_tl x => _
+  - destruct γ as [|τ τl].
+    + exact (empty_var x).
+    + refine (match x in var (τ' :: τl') A with
+      | @Var_hd τl' τ' => _
+      | @Var_tl τl' T' τ' x' => _
       end).
       * exact (Var (Var_tl Var_hd)).
-      * exact (Var (Var_tl (Var_tl x))).
+      * exact (Var (Var_tl (Var_tl x'))).
   - exact (Val v).
 Defined.
 
-Definition empty_var {A B : Type} (v : var [] A) : B.
-Proof. inversion v. Qed.
+Fixpoint assign_var {A} σ γ γ'
+  (FILTER : filter γ σ γ') (x : var γ A) {struct FILTER} : value γ' A :=
+  match x in var γ A return filter γ σ γ' -> value γ' A with
+  | @Var_hd γ A =>
+     let convoy γ A (FILTER : filter (A :: γ) σ γ') :=
+       match
+         FILTER as FILTER in filter γ σ γ'
+         return
+           match γ return Type with
+           | [] => unit
+           | τ :: τl => value γ' τ
+           end
+       with
+       | Filter_nil => tt
+       | Filter_cons_some _ v _ _ _ _ => Val v
+       | Filter_cons_none _ _ _ _ _ => Var Var_hd
+       end
+     in
+     convoy γ A
+  | @Var_tl γ A B x =>
+    let convoy γ A B (x : var γ B) (FILTER : filter (A :: γ) σ γ') :=
+      match
+        FILTER as FILTER in filter γ σ γ'
+        return
+          match γ return Type with
+          | [] => unit
+          | τ :: τl => var τl B -> value γ' B
+          end
+      with
+      | Filter_nil => tt
+      | Filter_cons_some _ _ γ σ γ' FILTER => fun x_tl =>
+        @assign_var B σ γ γ' FILTER x_tl
+      | Filter_cons_none A γ σ γ' FILTER => fun x_tl =>
+        shift_value A (@assign_var B σ γ γ' FILTER x_tl)
+      end x
+    in
+    convoy γ A B x
+  end FILTER.
 
-Definition assign_var {A} :
-  forall (σ : assign) (x : var (tyenv_of_assign σ) A), value (unassigned σ) A.
+Fixpoint id_filter γ : {σ & filter γ σ γ} :=
+  match γ with
+  | [] => existT (fun σ => filter [] σ []) [] Filter_nil
+  | τ :: τl =>
+    let σ := id_filter τl in
+    let (tl, FILTER) := σ in
+    existT (fun σ => filter (τ :: τl) σ (τ :: τl))
+      (existT option τ None :: tl)
+      (Filter_cons_none τ τl tl τl FILTER)
+  end.
+
+Definition assign_value {A} σ γ γ'
+  (FILTER : filter γ σ γ') (v : value γ A) : value γ' A :=
+  match v with
+  | @Var _ τ x => assign_var σ γ γ' FILTER x
+  | @Val _ τ v' => Val v'
+  end.
+
+Definition assign_eff {A} σ γ γ'
+  (FILTER : filter γ σ γ') (e : eff γ A) : eff γ' A.
 Proof.
-  refine (fix go σ x' {struct σ} :=
-  match σ as σ' return var (tyenv_of_assign σ') A -> value (unassigned σ') A with
-  | [] => empty_var
-  | hd :: tl =>
-    match hd as hd' return
-      var (tyenv_of_assign (hd' :: tl)) A -> value (unassigned (hd' :: tl)) A with
-    | existT _ T' v' =>
-      let convoy T v (x : var (T :: tyenv_of_assign tl) A)
-        : value (unassigned (∃? T v :: tl)) A := _ in
-      convoy T' v'
-    end
-  end x').
-  destruct v as [v|].
-  - refine (match x in var (τ :: τl) B return
-      forall (RRτ : τ = T) (RRτl : τl = tyenv_of_assign tl) (RRB : B = A), _ with
-    | @Var_hd _ τ => _ | @Var_tl _ τ B x => _
-    end eq_refl eq_refl eq_refl); intros.
-    + rewrite RRτ. exact (Val v).
-    + set (go' := go tl).
-      rewrite <- RRB, <- RRτl in go'.
-      exact (go' x).
-  - refine (match x in var (τ :: τl) B return
-      forall (RRτ : τ = T) (RRτl : τl = tyenv_of_assign tl) (RRB : B = A), _ with
-    | @Var_hd _ τ => _ | @Var_tl _ τ B x => _
-    end eq_refl eq_refl eq_refl); intros.
-    + rewrite RRτ. exact (Var Var_hd).
-    + set (go' := go tl).
-      rewrite <- RRτl, <- RRB in go'.
-      rewrite RRτ. exact (add_dummy T (go' x)).
+  destruct e.
+  - econstructor 1; eauto using assign_value.
+  - econstructor 2; eauto using assign_value.
+  - econstructor 3; eauto using assign_value.
+  - econstructor 4; eauto using assign_value.
+  - econstructor 5; eauto using assign_value.
+  - econstructor 6; eauto using assign_value.
+  - econstructor 7; eauto using assign_value.
 Defined.
 
-Compute assign_var [∃? bool None; ∃? _ (Some 1); ∃? int None] (Var_tl Var_hd).
+Ltac t := repeat econstructor; eauto.
 
-Definition assign_value {A}
-  (σ : assign) (v : value (tyenv_of_assign σ) A) :
-  value (unassigned σ) A.
+Definition assign_branch
+  (assign_itree : forall σ γ γ', filter γ σ γ' -> itree γ -> itree γ')
+  {A} σ γ γ'
+  (FILTER : filter γ σ γ') (br : branch itree γ A) : branch itree γ' A.
 Proof.
-  destruct v as [τ|τ].
-  - apply assign_var. assumption.
-  - exact (Val v).
+  refine (
+  match br in branch _ _ A return branch itree _ A with
+  | Br_cont cont =>
+    Br_cont
+      (assign_itree (∃? _ None :: σ) (_ :: γ) (_ :: γ') _ cont)
+  | Br_if con alt =>
+    Br_if
+      (assign_itree σ γ γ' FILTER con)
+      (assign_itree σ γ γ' FILTER alt)
+  | Br_dec none add addi ld st beq blt halt =>
+    Br_dec
+      (assign_itree σ γ γ' FILTER none)
+      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ add)
+      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ addi)
+      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ ld)
+      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ st)
+      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ beq)
+      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ blt)
+      (assign_itree σ γ γ' FILTER halt)
+  end); t.
 Defined.
 
-Lemma assign_head {A} (v : A) (γ : tyenv) :
-  match unassigned_assign γ in _ = T return value T A -> value γ A with
-  | eq_refl => id
-  end (assign_var (∃? A (Some v) :: assign_of_tyenv γ) Var_hd) = @Val γ A v.
-Proof.
-  rewrite (unassigned_assign γ). reflexivity.
-Qed.
+Definition assign_itree
+  : forall σ γ γ', filter γ σ γ' -> itree γ -> itree γ' :=
+  fix go σ γ γ' FILTER t :=
+  match t with
+  | Ret v => Ret (assign_value σ γ γ' FILTER v)
+  | Call f => Call f
+  | Unanswered que k =>
+    Unanswered (assign_eff σ γ γ' FILTER que) (assign_branch go σ γ γ' FILTER k)
+  | Answered que ans k =>
+    Answered (assign_eff σ γ γ' FILTER que) ans (go σ γ γ' FILTER k)
+  end.
 
+Definition br_cont {A} σ γ γ' (FILTER : filter γ σ γ')
+  (cont : itree (_ :: γ))
+  : A -> itree γ' :=
+  fun ans =>
+  assign_itree (∃? _ (Some ans) :: σ) (_ :: γ) γ' ltac:(t) cont
+.
+
+Definition br_if σ γ γ' (FILTER : filter γ σ γ')
+  (con : itree γ)
+  (alt : itree γ)
+  : bool -> itree γ' :=
+  fun ans =>
+  if ans
+  then assign_itree σ γ γ' ltac:(t) con
+  else assign_itree σ γ γ' ltac:(t) alt
+.
+
+Definition br_dec σ γ γ' (FILTER : filter γ σ γ')
+  (none : itree γ)
+  (add : itree (_ :: _ :: _ :: γ))
+  (addi : itree (_ :: _ :: _ :: γ))
+  (ld : itree (_ :: _ :: _ :: γ))
+  (st : itree (_ :: _ :: _ :: γ))
+  (beq : itree (_ :: _ :: _ :: γ))
+  (blt : itree (_ :: _ :: _ :: γ))
+  (halt : itree γ)
+  : option inst -> itree γ' :=
+  fun ans =>
+  match ans with
+  | None => assign_itree σ γ γ' ltac:(t) none
+  | Some (Inst_add rd rs1 rs2) =>
+    assign_itree (∃? _ (Some rs2) :: ∃? _ (Some rs1) :: ∃? _ (Some rd) :: σ) (_ :: _ :: _ :: γ) γ' ltac:(t) add
+  | Some (Inst_addi rd rs1 imm) =>
+    assign_itree (∃? _ (Some imm) :: ∃? _ (Some rs1) :: ∃? _ (Some rd) :: σ) (_ :: _ :: _ :: γ) γ' ltac:(t) addi
+  | Some (Inst_ld rd imm rs1) =>
+    assign_itree (∃? _ (Some rs1) :: ∃? _ (Some imm) :: ∃? _ (Some rd) :: σ) (_ :: _ :: _ :: γ) γ' ltac:(t) ld
+  | Some (Inst_st imm rs1 rs2) =>
+    assign_itree (∃? _ (Some rs2) :: ∃? _ (Some rs1) :: ∃? _ (Some imm) :: σ) (_ :: _ :: _ :: γ) γ' ltac:(t) st
+  | Some (Inst_beq rs1 rs2 imm) =>
+    assign_itree (∃? _ (Some imm) :: ∃? _ (Some rs2) :: ∃? _ (Some rs1) :: σ) (_ :: _ :: _ :: γ) γ' ltac:(t) beq
+  | Some (Inst_blt rs1 rs2 imm) =>
+    assign_itree (∃? _ (Some imm) :: ∃? _ (Some rs2) :: ∃? _ (Some rs1) :: σ) (_ :: _ :: _ :: γ) γ' ltac:(t) blt
+  | Some Inst_halt =>
+    assign_itree σ γ γ' ltac:(t) halt
+  end.
+
+Definition answer_branch_internal A σ γ γ' (FILTER : filter γ σ γ')
+  (br : branch itree γ A) (ans : A) : itree γ' :=
+  match br in branch _ _ T return T -> _ with
+  | Br_cont cont => br_cont σ γ γ' FILTER cont
+  | Br_if con alt => br_if σ γ γ' FILTER con alt
+  | Br_dec none add addi ld st beq blt halt =>
+    br_dec σ γ γ' FILTER none add addi ld st beq blt halt
+  end ans.
+
+Definition answer_branch A γ : branch itree γ A -> A -> itree γ :=
+  let (σ, FILTER) := id_filter γ in
+  answer_branch_internal A σ γ γ FILTER
+.
+
+Compute answer_branch bool [_; _]
+  (Br_if (Ret (Var (Var_tl Var_hd))) (Call Cycle)) true
+.
 
