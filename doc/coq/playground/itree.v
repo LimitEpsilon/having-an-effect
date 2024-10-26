@@ -219,19 +219,28 @@ Proof.
   end).
 Defined.
 
-Definition shift_value {γ A} B (v : value γ A) : value (B :: γ) A.
-Proof.
-  destruct v.
-  - destruct γ as [|τ τl].
-    + exact (empty_var x).
-    + refine (match x in var (τ' :: τl') A with
-      | @Var_hd τl' τ' => _
-      | @Var_tl τl' T' τ' x' => _
-      end).
-      * exact (Var (Var_tl Var_hd)).
-      * exact (Var (Var_tl (Var_tl x'))).
-  - exact (Val v).
-Defined.
+Definition shift_value {γ A} B (v : value γ A) : value (B :: γ) A :=
+  match v in value _ A return value (B :: γ) A with
+  | @Var _ A x =>
+    let convoy A (x : var γ A) :=
+      match γ as γ' return var γ' A -> value (B :: γ') A with
+      | [] => empty_var
+      | τ :: τl => fun x =>
+        match x in var γ' A
+          return
+            match γ' return Type with
+            | [] => unit
+            | _ :: _ => value (B :: γ') A
+            end
+        with
+        | Var_hd => Var (Var_tl Var_hd)
+        | Var_tl x => Var (Var_tl (Var_tl x))
+        end
+      end x
+    in
+    convoy A x
+  | Val v => Val v
+  end.
 
 Fixpoint assign_var {A} γ σ γ'
   (FILTER : filter γ σ γ') (x : var γ A) {struct FILTER} : value γ' A :=
