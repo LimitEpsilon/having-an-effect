@@ -233,7 +233,7 @@ Proof.
   - exact (Val v).
 Defined.
 
-Fixpoint assign_var {A} σ γ γ'
+Fixpoint assign_var {A} γ σ γ'
   (FILTER : filter γ σ γ') (x : var γ A) {struct FILTER} : value γ' A :=
   match x in var γ A return filter γ σ γ' -> value γ' A with
   | @Var_hd γ A =>
@@ -262,9 +262,9 @@ Fixpoint assign_var {A} σ γ γ'
       with
       | Filter_nil => tt
       | Filter_cons_some _ _ γ σ γ' FILTER => fun x_tl =>
-        @assign_var B σ γ γ' FILTER x_tl
+        @assign_var B γ σ γ' FILTER x_tl
       | Filter_cons_none A γ σ γ' FILTER => fun x_tl =>
-        shift_value A (@assign_var B σ γ γ' FILTER x_tl)
+        shift_value A (@assign_var B γ σ γ' FILTER x_tl)
       end x
     in
     convoy γ A B x
@@ -281,14 +281,14 @@ Fixpoint id_filter γ : {σ & filter γ σ γ} :=
       (Filter_cons_none τ τl tl τl FILTER)
   end.
 
-Definition assign_value {A} σ γ γ'
+Definition assign_value {A} γ σ γ'
   (FILTER : filter γ σ γ') (v : value γ A) : value γ' A :=
   match v with
-  | @Var _ τ x => assign_var σ γ γ' FILTER x
+  | @Var _ τ x => assign_var γ σ γ' FILTER x
   | @Val _ τ v' => Val v'
   end.
 
-Definition assign_eff {A} σ γ γ'
+Definition assign_eff {A} γ σ γ'
   (FILTER : filter γ σ γ') (e : eff γ A) : eff γ' A.
 Proof.
   destruct e.
@@ -304,64 +304,64 @@ Defined.
 Ltac t := repeat econstructor; eauto.
 
 Definition assign_branch
-  (assign_itree : forall σ γ γ', filter γ σ γ' -> itree γ -> itree γ')
-  {A} σ γ γ'
+  (assign_itree : forall γ σ γ', filter γ σ γ' -> itree γ -> itree γ')
+  {A} γ σ γ'
   (FILTER : filter γ σ γ') (br : branch itree γ A) : branch itree γ' A.
 Proof.
   refine (
   match br in branch _ _ A return branch itree _ A with
   | Br_cont cont =>
     Br_cont
-      (assign_itree (∃? _ None :: σ) (_ :: γ) (_ :: γ') _ cont)
+      (assign_itree (_ :: γ) (∃? _ None :: σ) (_ :: γ') _ cont)
   | Br_if con alt =>
     Br_if
-      (assign_itree σ γ γ' FILTER con)
-      (assign_itree σ γ γ' FILTER alt)
+      (assign_itree γ σ γ' FILTER con)
+      (assign_itree γ σ γ' FILTER alt)
   | Br_dec none add addi ld st beq blt halt =>
     Br_dec
-      (assign_itree σ γ γ' FILTER none)
-      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ add)
-      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ addi)
-      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ ld)
-      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ st)
-      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ beq)
-      (assign_itree (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ) (_ :: _ :: _ :: γ') _ blt)
-      (assign_itree σ γ γ' FILTER halt)
+      (assign_itree γ σ γ' FILTER none)
+      (assign_itree (_ :: _ :: _ :: γ) (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ') _ add)
+      (assign_itree (_ :: _ :: _ :: γ) (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ') _ addi)
+      (assign_itree (_ :: _ :: _ :: γ) (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ') _ ld)
+      (assign_itree (_ :: _ :: _ :: γ) (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ') _ st)
+      (assign_itree (_ :: _ :: _ :: γ) (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ') _ beq)
+      (assign_itree (_ :: _ :: _ :: γ) (∃? _ None :: ∃? _ None :: ∃? _ None :: σ) (_ :: _ :: _ :: γ') _ blt)
+      (assign_itree γ σ γ' FILTER halt)
   end); t.
 Defined.
 
 Definition assign_itree
-  : forall σ γ γ', filter γ σ γ' -> itree γ -> itree γ' :=
-  fix go σ γ γ' FILTER t :=
+  : forall γ σ γ', filter γ σ γ' -> itree γ -> itree γ' :=
+  fix go γ σ γ' FILTER t :=
   match t with
-  | Ret v => Ret (assign_value σ γ γ' FILTER v)
+  | Ret v => Ret (assign_value γ σ γ' FILTER v)
   | Call f => Call f
   | Unanswered que k =>
-    Unanswered (assign_eff σ γ γ' FILTER que) (assign_branch go σ γ γ' FILTER k)
+    Unanswered (assign_eff γ σ γ' FILTER que) (assign_branch go γ σ γ' FILTER k)
   | Answered que ans k =>
-    Answered (assign_eff σ γ γ' FILTER que) ans (go σ γ γ' FILTER k)
+    Answered (assign_eff γ σ γ' FILTER que) ans (go γ σ γ' FILTER k)
   end.
 
-Definition br_cont {A} σ γ γ' (FILTER : filter γ σ γ')
+Definition br_cont {A} γ σ γ' (FILTER : filter γ σ γ')
   (cont : itree (A :: γ))
   : A -> itree γ'.
 Proof.
   refine (fun ans =>
-  assign_itree (∃? _ (Some ans) :: σ) (_ :: γ) γ' _ cont); t.
+  assign_itree (_ :: γ) (∃? _ (Some ans) :: σ) γ' _ cont); t.
 Defined.
 
-Definition br_if σ γ γ' (FILTER : filter γ σ γ')
+Definition br_if γ σ γ' (FILTER : filter γ σ γ')
   (con : itree γ)
   (alt : itree γ)
   : bool -> itree γ'.
 Proof.
   refine (fun ans =>
   if ans
-  then assign_itree σ γ γ' _ con
-  else assign_itree σ γ γ' _ alt); t.
+  then assign_itree γ σ γ' _ con
+  else assign_itree γ σ γ' _ alt); t.
 Defined.
 
-Definition br_dec σ γ γ' (FILTER : filter γ σ γ')
+Definition br_dec γ σ γ' (FILTER : filter γ σ γ')
   (none : itree γ)
   (add : itree (reg int :: reg int :: reg int :: γ))
   (addi : itree (int :: reg int :: reg int :: γ))
@@ -374,36 +374,36 @@ Definition br_dec σ γ γ' (FILTER : filter γ σ γ')
 Proof.
   refine (fun ans =>
   match ans with
-  | None => assign_itree σ γ γ' _ none
+  | None => assign_itree γ σ γ' _ none
   | Some (Inst_add rd rs1 rs2) =>
-    assign_itree (∃? _ (Some rs2) :: ∃? _ (Some rs1) :: ∃? _ (Some rd) :: σ) (_ :: _ :: _ :: γ) γ' _ add
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rs2) :: ∃? _ (Some rs1) :: ∃? _ (Some rd) :: σ) γ' _ add
   | Some (Inst_addi rd rs1 imm) =>
-    assign_itree (∃? _ (Some imm) :: ∃? _ (Some rs1) :: ∃? _ (Some rd) :: σ) (_ :: _ :: _ :: γ) γ' _ addi
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some imm) :: ∃? _ (Some rs1) :: ∃? _ (Some rd) :: σ) γ' _ addi
   | Some (Inst_ld rd imm rs1) =>
-    assign_itree (∃? _ (Some rs1) :: ∃? _ (Some imm) :: ∃? _ (Some rd) :: σ) (_ :: _ :: _ :: γ) γ' _ ld
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rs1) :: ∃? _ (Some imm) :: ∃? _ (Some rd) :: σ) γ' _ ld
   | Some (Inst_st imm rs1 rs2) =>
-    assign_itree (∃? _ (Some rs2) :: ∃? _ (Some rs1) :: ∃? _ (Some imm) :: σ) (_ :: _ :: _ :: γ) γ' _ st
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rs2) :: ∃? _ (Some rs1) :: ∃? _ (Some imm) :: σ) γ' _ st
   | Some (Inst_beq rs1 rs2 imm) =>
-    assign_itree (∃? _ (Some imm) :: ∃? _ (Some rs2) :: ∃? _ (Some rs1) :: σ) (_ :: _ :: _ :: γ) γ' _ beq
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some imm) :: ∃? _ (Some rs2) :: ∃? _ (Some rs1) :: σ) γ' _ beq
   | Some (Inst_blt rs1 rs2 imm) =>
-    assign_itree (∃? _ (Some imm) :: ∃? _ (Some rs2) :: ∃? _ (Some rs1) :: σ) (_ :: _ :: _ :: γ) γ' _ blt
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some imm) :: ∃? _ (Some rs2) :: ∃? _ (Some rs1) :: σ) γ' _ blt
   | Some Inst_halt =>
-    assign_itree σ γ γ' _ halt
+    assign_itree γ σ γ' _ halt
   end); t.
 Defined.
 
-Definition answer_branch_internal A σ γ γ' (FILTER : filter γ σ γ')
+Definition answer_branch_internal A γ σ γ' (FILTER : filter γ σ γ')
   (br : branch itree γ A) (ans : A) : itree γ' :=
   match br in branch _ _ T return T -> _ with
-  | Br_cont cont => br_cont σ γ γ' FILTER cont
-  | Br_if con alt => br_if σ γ γ' FILTER con alt
+  | Br_cont cont => br_cont γ σ γ' FILTER cont
+  | Br_if con alt => br_if γ σ γ' FILTER con alt
   | Br_dec none add addi ld st beq blt halt =>
-    br_dec σ γ γ' FILTER none add addi ld st beq blt halt
+    br_dec γ σ γ' FILTER none add addi ld st beq blt halt
   end ans.
 
 Definition answer_branch A γ : branch itree γ A -> A -> itree γ :=
   let (σ, FILTER) := id_filter γ in
-  answer_branch_internal A σ γ γ FILTER
+  answer_branch_internal A γ σ γ FILTER
 .
 
 Compute answer_branch bool [_ ; _]
