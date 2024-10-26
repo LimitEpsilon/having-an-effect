@@ -283,8 +283,7 @@ Fixpoint id_filter γ : {σ & filter γ σ γ} :=
   match γ with
   | [] => existT (fun σ => filter [] σ []) [] Filter_nil
   | τ :: τl =>
-    let σ := id_filter τl in
-    let (tl, FILTER) := σ in
+    let (tl, FILTER) := id_filter τl in
     existT (fun σ => filter (τ :: τl) σ (τ :: τl))
       (existT option τ None :: tl)
       (Filter_cons_none τ τl tl τl FILTER)
