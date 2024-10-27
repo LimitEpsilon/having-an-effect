@@ -120,7 +120,7 @@ Section Eff.
   | Read_mem {A} (addr : value γ addr) (mem : mem A) : eff A
   | Read_reg {A} (reg : value γ (reg A)) : eff A
   | Write_mem {A} (addr : value γ addr) (mem : mem A) (data : A) : eff unit
-  | Write_reg {A} (reg : value γ (reg A)) (data : value γ A) : eff A
+  | Write_reg {A} (reg : value γ (reg A)) (data : value γ A) : eff unit
   | Bop {A B C} (op : bop A B C) (lop : value γ A) (rop : value γ B) : eff C
   | Vote (tgt : value γ addr) : eff unit
   | Decode (tgt : value γ addr) : eff (option inst)
@@ -286,4 +286,91 @@ Definition answer_branch A γ : branch itree γ A -> A -> itree γ :=
 Compute answer_branch bool [_ ; _]
   (Br_if (Ret (Var (Var_tl Var_hd))) (Call Cycle)) true
 .
+
+Definition is_val {A γ} (que : eff γ A) : Prop :=
+Eval cbv in ltac:(
+  destruct que;
+  repeat match goal with
+  | v : var _ _ |- _ => exact False
+  | v : value _ _ |- _ => destruct v
+  end; exact True
+).
+
+Definition is_val_dec {A γ} (que : eff γ A) : {is_val que} + {~ is_val que} :=
+Eval cbn in ltac:(
+  destruct que; cbn;
+  repeat match goal with
+  | v : value _ _ |- _ => destruct v
+  end; solve [right; exact id | left; exact I]
+).
+
+Definition destruct_value {Goal γ T} (v : value γ T)
+  (var_case : var γ T -> Goal γ T)
+  (val_case : T -> Goal γ T)
+  : Goal γ T :=
+  match v as v'
+    return match v' with Var _ => var γ T | Val _ => T end -> Goal γ T
+  with
+  | Var _ => var_case
+  | Val _ => val_case
+  end match v with Var x => x | Val v => v end.
+
+Tactic Notation "des_val" ident(v) :=
+  eapply (destruct_value v); clear v; intro v
+.
+
+Definition destruct_bop {Goal A B C}
+  (op : bop A B C) (lop : A) (rop : B)
+  (add_case : forall ADD : True, int -> int -> Goal int)
+  (eqb_case : forall EQB : True, int -> int -> Goal bool)
+  (ltb_case : forall LTB : True, int -> int -> Goal bool)
+  : Goal C :=
+  match op in bop A' B' C' return True -> A' -> B' -> Goal C' with
+  | Bop_add => add_case
+  | Bop_eqb => eqb_case
+  | Bop_ltb => ltb_case
+  end I lop rop.
+
+Tactic Notation "des_bop" ident(op) :=
+  eapply (destruct_bop op); eauto; intro
+.
+
+Definition test_bop {A γ} (que : eff γ A) : option A.
+Proof.
+  refine (
+  match que with
+  | Bop op lop rop => _
+  | _ => None
+  end).
+  des_val lop; [exact None|].
+  des_val rop; [exact None|].
+  des_bop op.
+  - intros x y. exact (Some (x + y)%Z).
+  - intros x y. exact (Some (x =? y)%Z).
+  - intros x y. exact (Some (x <? y)%Z).
+Defined.
+
+Definition test_read_reg {A γ} (que : eff γ A) : option (reg A).
+Proof.
+  refine (
+  match que with
+  | Read_reg reg => _
+  | _ => None
+  end).
+  des_val reg; [exact None|].
+  exact (Some reg).
+Defined.
+
+Definition bop_sem {A B C} (op : bop A B C) : A -> B -> C :=
+  match op with
+  | Bop_add => Z.add
+  | Bop_eqb => Z.eqb
+  | Bop_ltb => Z.ltb
+  end.
+
+Lemma test_bop_pf γ A B C (op : bop A B C) (lop : A) (rop : B) :
+  @test_bop C γ (Bop op (Val lop) (Val rop)) = Some (bop_sem op lop rop).
+Proof.
+  destruct op; reflexivity.
+Qed.
 
