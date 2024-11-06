@@ -20,14 +20,12 @@ Section Reg.
   (* add here *)
   Universe reg_u.
   Variant reg : Type -> Type@{reg_u} :=
-  | PC : reg int
   | Rzero : reg int (* always zero *)
   | Rint (r : int) : reg int
   .
 
   Definition eqb_reg {A B} (r : reg A) (r' : reg B) : bool :=
   match r with
-  | PC => match r' with PC => true | _ => false end
   | Rzero => match r' with Rzero => true | _ => false end
   | Rint int => match r' with Rint int' => eqb_int int int' | _ => false end
   end.
@@ -481,11 +479,6 @@ Definition answer_read_mem {A B}
 Definition answer_read_reg {A B}
   (r : reg A) (r' : reg B) (ans : B) : option A :=
   match r in reg A return option A with
-  | PC =>
-    match r' in reg A' return A' -> _ with
-    | PC => fun ans' => Some ans'
-    | _ => fun _ => None
-    end ans
   | Rzero =>
     match r' in reg A' return A' -> _ with
     | Rzero => fun ans' => Some ans'
@@ -523,14 +516,6 @@ Definition answer_write_mem {A B}
 Definition answer_write_reg {A B}
   (r : reg A) (r' : reg B) (data : A) (data' : B) (ans : unit) : option unit :=
   match r in reg A return A -> _ with
-  | PC => fun data =>
-    match r' in reg A' return A' -> _ with
-    | PC => fun data' =>
-      if eqb_int data data'
-      then Some ans
-      else None
-    | _ => fun _ => None
-    end data'
   | Rzero => fun data =>
     match r' in reg A' return A' -> _ with
     | Rzero => fun data' =>
@@ -808,7 +793,7 @@ Definition handle_itree {γ} (h : handler) (t : itree γ) : handler * itree γ :
 
 Definition do_step := step_system (handle_system handle_itree).
 
-Definition prepare_step (call : fn [] -> itree []) : system -> system :=
+Definition prepare_step (call : forall {γ}, fn γ -> itree γ) : system -> system :=
   fix go sys :=
   match sys with
   | Sys_storage h children =>
@@ -843,7 +828,8 @@ Definition prepare_step (call : fn [] -> itree []) : system -> system :=
 
 Definition step call sys := prepare_step call (do_step sys).
 
-Definition add_branch : itree [reg int; reg int; reg int; int].
+Definition add_branch {γ} (tgt : value γ int)
+  : itree ([reg int; reg int; reg int] ++ γ).
 Proof.
   (* add rd rs1 rs2 *)
   (* rd ← (rs1) + (rs2) *)
@@ -864,16 +850,14 @@ Proof.
     (Br_cont _)
   ); [do 5 apply Var_tl; exact Var_hd |].
   refine(
-  Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+  Unanswered (Bop Bop_add _ (Val 1%Z))
     (Br_cont (Call (Cycle (Var Var_hd))))
   ).
-  repeat match goal with
-  | |- var (int :: []) int => exact Var_hd
-  | _ => apply Var_tl
-  end.
+  repeat (apply shift_value; try assumption).
 Defined.
 
-Definition addi_branch : itree [int; reg int; reg int; int].
+Definition addi_branch {γ} (tgt : value γ int)
+  : itree ([int; reg int; reg int] ++ γ).
 Proof.
   (* addi rd rs1 imm *)
   (* rd ← (rs1) + imm *)
@@ -890,16 +874,14 @@ Proof.
     )
   ); [do 4 apply Var_tl; exact Var_hd |].
   refine(
-  Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+  Unanswered (Bop Bop_add _ (Val 1%Z))
     (Br_cont (Call (Cycle (Var Var_hd))))
   ).
-  repeat match goal with
-  | |- var (int :: []) int => exact Var_hd
-  | _ => apply Var_tl
-  end.
+  repeat (apply shift_value; try assumption).
 Defined.
 
-Definition ld_branch : itree [reg int; int; reg int; int].
+Definition ld_branch {γ} (tgt : value γ int)
+  : itree ([reg int; int; reg int] ++ γ).
 Proof.
   (* ld rd imm(rs1) *)
   (* rd ← M[(rs1) + imm] *)
@@ -920,16 +902,14 @@ Proof.
     )
   ); [exact Var_hd | do 5 apply Var_tl; exact Var_hd |].
   refine(
-  Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+  Unanswered (Bop Bop_add _ (Val 1%Z))
     (Br_cont (Call (Cycle (Var Var_hd))))
   ).
-  repeat match goal with
-  | |- var (int :: []) int => exact Var_hd
-  | _ => apply Var_tl
-  end.
+  repeat (apply shift_value; try assumption).
 Defined.
 
-Definition st_branch : itree [reg int; reg int; int; int].
+Definition st_branch {γ} (tgt : value γ int)
+  : itree ([reg int; reg int; int] ++ γ).
 Proof.
   (* st imm(rs1) rs2 *)
   (* M[(rs1) + imm] ← (rs2) *)
@@ -953,16 +933,14 @@ Proof.
     )
   ).
   refine(
-  Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+  Unanswered (Bop Bop_add _ (Val 1%Z))
     (Br_cont (Call (Cycle (Var Var_hd))))
-  );
-  repeat match goal with
-  | |- var (int :: []) int => exact Var_hd
-  | _ => apply Var_tl
-  end.
+  ).
+  repeat (apply shift_value; try assumption).
 Defined.
 
-Definition beq_branch : itree [int; reg int; reg int; int].
+Definition beq_branch {γ} (tgt : value γ int)
+  : itree ([int; reg int; reg int] ++ γ).
 Proof.
   (* beq rs1 rs2 imm *)
   (* (pc') = if (rs1) = (rs2) then (pc) + imm else (pc) + 1 *)
@@ -977,10 +955,10 @@ Proof.
               (Var (Var_tl Var_hd))) (* rs2 *)
             (Br_if
               (Unanswered
-                (Bop Bop_add (Var _) (Var (Var_tl (Var_tl Var_hd))))
+                (Bop Bop_add _ (Var (Var_tl (Var_tl Var_hd))))
                 (Br_cont (Call (Cycle (Var Var_hd))))
               )
-              (Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+              (Unanswered (Bop Bop_add _ (Val 1%Z))
                 (Br_cont (Call (Cycle (Var Var_hd))))
               )
             )
@@ -989,13 +967,11 @@ Proof.
       )
     )
   );
-  repeat match goal with
-  | |- var (int :: []) int => exact Var_hd
-  | _ => apply Var_tl
-  end.
+  repeat (apply shift_value; try assumption).
 Defined.
 
-Definition blt_branch : itree [int; reg int; reg int; int].
+Definition blt_branch {γ} (tgt : value γ int)
+  : itree ([int; reg int; reg int] ++ γ).
 Proof.
   (* blt rs1 rs2 imm *)
   (* (pc') = if (rs1) < (rs2) then (pc) + imm else (pc) + 1 *)
@@ -1010,10 +986,10 @@ Proof.
               (Var (Var_tl Var_hd))) (* rs2 *)
             (Br_if
               (Unanswered
-                (Bop Bop_add (Var _) (Var (Var_tl (Var_tl Var_hd))))
+                (Bop Bop_add _ (Var (Var_tl (Var_tl Var_hd))))
                 (Br_cont (Call (Cycle (Var Var_hd))))
               )
-              (Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+              (Unanswered (Bop Bop_add _ (Val 1%Z))
                 (Br_cont (Call (Cycle (Var Var_hd))))
               )
             )
@@ -1022,64 +998,23 @@ Proof.
       )
     )
   );
-  repeat match goal with
-  | |- var (int :: []) int => exact Var_hd
-  | _ => apply Var_tl
-  end.
+  repeat (apply shift_value; try assumption).
 Defined.
 
-Definition cycle tgt : itree [] :=
-  Eval cbv in
-  let br :=
-    Br_cont
-      (Unanswered (Decode (Val tgt))
-        (Br_dec
-          (Unanswered (Vote (Val tgt))
-            (Br_cont (Call (Cycle (Val tgt))))
-          )
-          add_branch
-          addi_branch
-          ld_branch
-          st_branch
-          beq_branch
-          blt_branch
-          Halt
-        )
+Definition cycle {γ} (tgt : value γ int) : itree γ :=
+  Unanswered (Decode tgt)
+    (Br_dec
+      (Unanswered (Vote tgt)
+        (Br_cont (Call (Cycle (shift_value _ tgt))))
       )
-  in
-  answer_branch _ _ br tgt.
-
-Definition pc_h (init : int) : handler.
-Proof.
-  refine (
-  {|
-    h_ty := int;
-    h_state := init;
-    h_step := _;
-    h_ans := None;
-  |}).
-  intros A que.
-  refine (
-    match que with
-    | Read_reg r => _
-    | Write_reg r data => _
-    | _ => None
-    end
-  ).
-  - des_val r.
-    exact (
-    match r in reg T return option (_ * (_ -> _ * T)) with
-    | PC => Some (Halt, fun i => (i, i))
-    | _ => None
-    end%Z).
-  - des_val r; des_val data.
-    refine (
-    match r in reg T return T -> option (_ * (_ -> _ * unit)) with
-    | PC => fun data => _
-    | _ => fun _ => None
-    end data).
-    exact (Some (Halt, fun s => (data, tt))%Z).
-Defined.
+      (add_branch tgt)
+      (addi_branch tgt)
+      (ld_branch tgt)
+      (st_branch tgt)
+      (beq_branch tgt)
+      (blt_branch tgt)
+      Halt
+    ).
 
 Definition reg_h (init : map int) : handler.
 Proof.
@@ -1106,7 +1041,6 @@ Proof.
                                          | None => 0
                                          | Some v => v
                                          end))
-    | PC => None
     end%Z).
   - des_val r; des_val data.
     refine (
@@ -1306,16 +1240,15 @@ Definition thread base iter_num : system :=
   let regfile := update 1 b regfile in
   let regfile := update 2 i regfile in
   let regfile := update 3 0 regfile in
-  let thread := Sys_control (cycle 0) in
+  let thread := Sys_control (cycle (Val 0)) in
   let thread := Sys_storage (reg_h regfile) [thread] in
-  let thread := Sys_storage (pc_h 0) [thread] in
   let thread := Sys_storage bop_h [thread] in
   thread.
 
 Definition gpu :=
   let iter_num := 10%nat in
   let gpu :=
-    Sys_storage vote_h [thread 0 iter_num; thread (2 * iter_num) 10]%nat in
+    Sys_storage vote_h [thread 0 iter_num; thread (2 * iter_num) iter_num]%nat in
   let gpu := Sys_storage decode_h [gpu] in
   let gpu := Sys_storage (dmem_h (dmem iter_num)) [gpu] in
   let gpu := Sys_storage (imem_h (imem iter_num)) [gpu] in
@@ -1327,9 +1260,9 @@ Notation "⟪ st & ans ⟫" :=
 
 (*Notation "⋯" := (Sys_control _) (only printing).*)
 
-Definition call (f : fn []) : itree [] :=
+Definition call γ (f : fn γ) : itree γ :=
   match f with
-  | Cycle tgt => destruct_value _ tgt (fun x => empty_var x) cycle
+  | Cycle tgt => cycle tgt
   end.
 
 Definition step n :=
