@@ -1,5 +1,5 @@
 From Coq Require Import ZArith List.
-From Playground Require Import Var.
+From Playground Require Import Var Map.
 Import ListNotations.
 (* change ITrees to Inductive, and try again? *)
 Set Primitive Projections.
@@ -16,26 +16,20 @@ Section Bool.
   Definition bool : Type@{bool_u} := bool.
 End Bool.
 
-Section Addr.
-  Universe addr_u.
-  Definition addr : Type@{addr_u} := Z.
-  Definition eqb_addr := Z.eqb.
-End Addr.
-
 Section Reg.
   (* add here *)
   Universe reg_u.
   Variant reg : Type -> Type@{reg_u} :=
-  | PC : reg addr
+  | PC : reg int
   | Rzero : reg int (* always zero *)
-  | Rint (addr : addr) : reg int
+  | Rint (r : int) : reg int
   .
 
   Definition eqb_reg {A B} (r : reg A) (r' : reg B) : bool :=
   match r with
   | PC => match r' with PC => true | _ => false end
   | Rzero => match r' with Rzero => true | _ => false end
-  | Rint addr => match r' with Rint addr' => eqb_addr addr addr' | _ => false end
+  | Rint int => match r' with Rint int' => eqb_int int int' | _ => false end
   end.
 End Reg.
 
@@ -49,16 +43,16 @@ Section Inst.
   | Inst_addi (rd : reg int) (rs1 : reg int) (imm : int)
   (* addi rd rs1 imm *)
   (* rd ← (rs1) + imm *)
-  | Inst_ld (rd : reg int) (imm : addr) (rs1 : reg int)
+  | Inst_ld (rd : reg int) (imm : int) (rs1 : reg int)
   (* ld rd imm(rs1) *)
   (* rd ← M[(rs1) + imm] *)
-  | Inst_st (imm : addr) (rs1 : reg int) (rs2 : reg int)
+  | Inst_st (imm : int) (rs1 : reg int) (rs2 : reg int)
   (* st imm(rs1) rs2 *)
   (* M[(rs1) + imm] ← (rs2) *)
-  | Inst_beq (rs1 : reg int) (rs2 : reg int) (imm : addr)
+  | Inst_beq (rs1 : reg int) (rs2 : reg int) (imm : int)
   (* beq rs1 rs2 imm *)
   (* (pc') = if (rs1) = (rs2) then (pc) + imm else (pc) + 1 *)
-  | Inst_blt (rs1 : reg int) (rs2 : reg int) (imm : addr)
+  | Inst_blt (rs1 : reg int) (rs2 : reg int) (imm : int)
   (* blt rs1 rs2 imm *)
   (* (pc') = if (rs1) < (rs2) then (pc) + imm else (pc) + 1 *)
   | Inst_halt
@@ -75,31 +69,31 @@ Section Inst.
   | Inst_addi rd rs1 imm =>
     match i' with
     | Inst_addi rd' rs1' imm' =>
-      eqb_reg rd rd' && eqb_reg rs1 rs1' && eqb_addr imm imm'
+      eqb_reg rd rd' && eqb_reg rs1 rs1' && eqb_int imm imm'
     | _ => false
     end
   | Inst_ld rd imm rs1 =>
     match i' with
     | Inst_ld rd' imm' rs1' =>
-      eqb_reg rd rd' && eqb_addr imm imm' && eqb_reg rs1 rs1'
+      eqb_reg rd rd' && eqb_int imm imm' && eqb_reg rs1 rs1'
     | _ => false
     end
   | Inst_st imm rs1 rs2 =>
     match i' with
     | Inst_st imm' rs1' rs2' =>
-      eqb_addr imm imm' && eqb_reg rs1 rs1' && eqb_reg rs2 rs2'
+      eqb_int imm imm' && eqb_reg rs1 rs1' && eqb_reg rs2 rs2'
     | _ => false
     end
   | Inst_beq rs1 rs2 imm =>
     match i' with
     | Inst_beq rs1' rs2' imm' =>
-      eqb_reg rs1 rs1' && eqb_reg rs2 rs2' && eqb_addr imm imm'
+      eqb_reg rs1 rs1' && eqb_reg rs2 rs2' && eqb_int imm imm'
     | _ => false
     end
   | Inst_blt rs1 rs2 imm =>
     match i' with
     | Inst_blt rs1' rs2' imm' =>
-      eqb_reg rs1 rs1' && eqb_reg rs2 rs2' && eqb_addr imm imm'
+      eqb_reg rs1 rs1' && eqb_reg rs2 rs2' && eqb_int imm imm'
     | _ => false
     end
   | Inst_halt =>
@@ -129,10 +123,11 @@ Section Fn.
   (** Meaning : ∀ γ, itree γ *)
   (* add here *)
   Universe fn_u.
-  Variant fn : Type@{fn_u} :=
-  | Cycle
+  Variant fn {γ : tyenv} : Type@{fn_u} :=
+  | Cycle (tgt : value γ int)
   .
 End Fn.
+Arguments fn : clear implicits.
 
 Section Bop.
   (* add here *)
@@ -148,13 +143,13 @@ Section Eff.
   (* add here *)
   Universe eff_u.
   Variant eff {γ : tyenv} : Type -> Type@{eff_u} :=
-  | Read_mem {A} (addr : value γ addr) (mem : mem A) : eff A
+  | Read_mem {A} (addr : value γ int) (mem : mem A) : eff A
   | Read_reg {A} (reg : value γ (reg A)) : eff A
-  | Write_mem {A} (addr : value γ addr) (mem : mem A) (data : A) : eff unit
+  | Write_mem {A} (addr : value γ int) (mem : mem A) (data : value γ A) : eff unit
   | Write_reg {A} (reg : value γ (reg A)) (data : value γ A) : eff unit
   | Bop {A B C} (op : bop A B C) (lop : value γ A) (rop : value γ B) : eff C
-  | Vote (tgt : value γ addr) : eff unit
-  | Decode (tgt : value γ addr) : eff (option inst)
+  | Vote (tgt : value γ int) : eff unit
+  | Decode (tgt : value γ int) : eff (option inst)
   .
 End Eff.
 Arguments eff : clear implicits.
@@ -169,10 +164,10 @@ Section Branch.
     (none : itree γ)
     (add : itree (reg int :: reg int :: reg int :: γ))
     (addi : itree (int :: reg int :: reg int :: γ))
-    (ld : itree (reg int :: addr :: reg int :: γ))
-    (st : itree (reg int :: reg int :: addr :: γ))
-    (beq : itree (addr :: reg int :: reg int :: γ))
-    (blt : itree (addr :: reg int :: reg int :: γ))
+    (ld : itree (reg int :: int :: reg int :: γ))
+    (st : itree (reg int :: reg int :: int :: γ))
+    (beq : itree (int :: reg int :: reg int :: γ))
+    (blt : itree (int :: reg int :: reg int :: γ))
     (halt : itree γ)
     : branch (option inst)
   .
@@ -184,7 +179,7 @@ Section Itree.
   Universe itree_u.
   Inductive itree {γ : tyenv} : Type@{itree_u} :=
   | Halt : itree
-  | Call (f : fn) : itree
+  | Call (f : fn γ) : itree
   | Unanswered {A} (que : eff γ A) (k : @branch (@itree) γ A) : itree
   (*| Answered {A} (que : eff γ A) (ans : A) (k : itree) (rollback : @branch (@itree) γ A) : itree*)
   .
@@ -195,6 +190,11 @@ Unset Printing Universes.
 
 Notation "'∃?' A x" := (existT option A x)
   (at level 10, A at next level, x at next level).
+
+Definition lift_fn Γ {γ} (f : fn γ) : fn (γ ++ Γ) :=
+  match f with
+  | Cycle tgt => Cycle (lift_value Γ tgt)
+  end.
 
 Definition lift_eff Γ {A γ} (que : eff γ A) : eff (γ ++ Γ) A.
 Proof.
@@ -237,9 +237,16 @@ Definition lift_itree Γ : forall {γ}, itree γ -> itree (γ ++ Γ) :=
   fix go {γ} t :=
   match t with
   | Halt => Halt
-  | Call f => Call f
+  | Call f => Call (lift_fn Γ f)
   | Unanswered que k => Unanswered (lift_eff Γ que) (lift_branch Γ (@go) k)
   end.
+
+Definition assign_fn γ σ γ'
+  (FILTER : filter γ σ γ') (f : fn γ) : fn γ'.
+Proof.
+  destruct f.
+  - econstructor 1; eauto using assign_value.
+Defined.
 
 Definition assign_eff {A} γ σ γ'
   (FILTER : filter γ σ γ') (e : eff γ A) : eff γ' A.
@@ -287,7 +294,7 @@ Definition assign_itree
   fix go γ σ γ' FILTER t :=
   match t with
   | Halt => Halt
-  | Call f => Call f
+  | Call f => Call (assign_fn γ σ γ' FILTER f)
   | Unanswered que k =>
     Unanswered
       (assign_eff γ σ γ' FILTER que)
@@ -319,10 +326,10 @@ Definition answer_br_dec γ σ γ' (FILTER : filter γ σ γ')
   (none : itree γ)
   (add : itree (reg int :: reg int :: reg int :: γ))
   (addi : itree (int :: reg int :: reg int :: γ))
-  (ld : itree (reg int :: addr :: reg int :: γ))
-  (st : itree (reg int :: reg int :: addr :: γ))
-  (beq : itree (addr :: reg int :: reg int :: γ))
-  (blt : itree (addr :: reg int :: reg int :: γ))
+  (ld : itree (reg int :: int :: reg int :: γ))
+  (st : itree (reg int :: reg int :: int :: γ))
+  (beq : itree (int :: reg int :: reg int :: γ))
+  (blt : itree (int :: reg int :: reg int :: γ))
   (halt : itree γ)
   : option inst -> itree γ'.
 Proof.
@@ -398,6 +405,9 @@ Tactic Notation "des_val" hyp(v) :=
     intro v;
     simple apply (destruct_value P v);
     clear v; intro v
+  end;
+  try match goal with
+  | x : var [] _ |- _ => exact (empty_var x)
   end.
 
 Definition to_val {A γ} (que : eff γ A) : option (eff [] A).
@@ -420,7 +430,6 @@ Definition from_val {A γ} (que : eff [] A) : eff γ A.
 Proof.
   destruct que;
   repeat match goal with
-  | v : var _ _ |- _ => eapply empty_var; solve [eauto]
   | v : value _ _ |- _ => des_val v
   end.
   - econstructor 1; try simple apply Val; eauto.
@@ -437,7 +446,6 @@ Lemma from_to {A γ} (que : eff [] A)
 Proof.
   destruct que;
   repeat match goal with
-  | v : var _ _ |- _ => eapply empty_var; solve [eauto]
   | v : value _ _ |- _ => des_val v
   end; try reflexivity.
 Qed.
@@ -454,18 +462,18 @@ Proof.
 Qed.
 
 Definition answer_read_mem {A B}
-  (m : mem A) (m' : mem B) addr addr' (ans : B) : option A :=
+  (m : mem A) (m' : mem B) int int' (ans : B) : option A :=
   match m in mem A return option A with
   | Imem =>
     match m' in mem B return B -> _ with
     | Imem => fun ans' =>
-      if eqb_addr addr addr' then Some ans' else None
+      if eqb_int int int' then Some ans' else None
     | _ => fun _ => None
     end ans
   | Dmem =>
     match m' in mem B return B -> _ with
     | Dmem => fun ans' =>
-      if eqb_addr addr addr' then Some ans' else None
+      if eqb_int int int' then Some ans' else None
     | _ => fun _ => None
     end ans
   end.
@@ -483,21 +491,21 @@ Definition answer_read_reg {A B}
     | Rzero => fun ans' => Some ans'
     | _ => fun _ => None
     end ans
-  | Rint addr =>
+  | Rint int =>
     match r' in reg A' return A' -> _ with
-    | Rint addr' => fun ans' =>
-      if eqb_addr addr addr' then Some ans' else None
+    | Rint int' => fun ans' =>
+      if eqb_int int int' then Some ans' else None
     | _ => fun _ => None
     end ans
   end.
 
 Definition answer_write_mem {A B}
-  (m : mem A) (m' : mem B) addr addr' (data : A) (data' : B) (ans : unit) : option unit :=
+  (m : mem A) (m' : mem B) int int' (data : A) (data' : B) (ans : unit) : option unit :=
   match m in mem A return A -> _ with
   | Imem => fun data =>
     match m' in mem A' return A' -> _ with
     | Imem => fun data' =>
-      if eqb_addr addr addr' && eqb_inst data data'
+      if eqb_int int int' && eqb_inst data data'
       then Some ans
       else None
     | _ => fun _ => None
@@ -505,7 +513,7 @@ Definition answer_write_mem {A B}
   | Dmem => fun data =>
     match m' in mem A' return A' -> _ with
     | Dmem => fun data' =>
-      if eqb_addr addr addr' && eqb_int data data'
+      if eqb_int int int' && eqb_int data data'
       then Some ans
       else None
     | _ => fun _ => None
@@ -534,7 +542,7 @@ Definition answer_write_reg {A B}
   | Rint addr => fun data =>
     match r' in reg A' return A' -> _ with
     | Rint addr' => fun data' =>
-      if eqb_addr addr addr' && eqb_int data data'
+      if eqb_int addr addr' && eqb_int data data'
       then Some ans
       else None
     | _ => fun _ => None
@@ -572,22 +580,22 @@ Definition answer_bop {A B C A' B' C'}
   end%bool lop rop.
 
 Definition answer_vote
-  (tgt : addr) (tgt' : addr) (ans : unit) : option unit :=
-  if eqb_addr tgt tgt' then Some ans else None
+  (tgt : int) (tgt' : int) (ans : unit) : option unit :=
+  if eqb_int tgt tgt' then Some ans else None
 .
 
 Definition answer_decode
-  (tgt : addr) (tgt' : addr) (ans : option inst) : option (option inst) :=
-  if eqb_addr tgt tgt' then Some ans else None
+  (tgt : int) (tgt' : int) (ans : option inst) : option (option inst) :=
+  if eqb_int tgt tgt' then Some ans else None
 .
 
 Definition answer_eff {A B} (que : eff [] A) (que' : eff [] B) (ans' : B) : option A.
 Proof.
   refine (
   match que in eff _ τ return option τ with
-  | Read_mem addr mem =>
+  | Read_mem int mem =>
     match que' in eff _ τ' return τ' -> option _ with
-    | Read_mem addr' mem' => fun ans => _
+    | Read_mem int' mem' => fun ans => _
     | _ => fun _ => None
     end ans'
   | Read_reg reg =>
@@ -595,9 +603,9 @@ Proof.
     | Read_reg reg' => fun ans => _
     | _ => fun _ => None
     end ans'
-  | Write_mem addr mem data =>
+  | Write_mem int mem data =>
     match que' in eff _ τ' return τ' -> option _ with
-    | Write_mem addr' mem' data' => fun ans => _
+    | Write_mem int' mem' data' => fun ans => _
     | _ => fun _ => None
     end ans'
   | Write_reg reg data =>
@@ -622,12 +630,11 @@ Proof.
     end ans'
   end);
   repeat match goal with
-  | x : var _ _ |- _ => exact (empty_var x)
   | v : value _ _ |- _ => des_val v
   end; clear ans'.
-  - exact (answer_read_mem mem mem' addr addr' ans).
+  - exact (answer_read_mem mem mem' int int' ans).
   - exact (answer_read_reg reg reg' ans).
-  - exact (answer_write_mem mem mem' addr addr' data data' ans).
+  - exact (answer_write_mem mem mem' int int' data data' ans).
   - exact (answer_write_reg reg reg' data data' ans).
   - exact (answer_bop op op' lop lop' rop rop' ans).
   - exact (answer_vote tgt tgt' ans).
@@ -801,7 +808,7 @@ Definition handle_itree {γ} (h : handler) (t : itree γ) : handler * itree γ :
 
 Definition do_step := step_system (handle_system handle_itree).
 
-Definition prepare_step (call : fn -> itree []) : system -> system :=
+Definition prepare_step (call : fn [] -> itree []) : system -> system :=
   fix go sys :=
   match sys with
   | Sys_storage h children =>
@@ -826,7 +833,7 @@ Definition prepare_step (call : fn -> itree []) : system -> system :=
       h_ans := h_ans';
     |}
     in
-    Sys_storage h' (map go children)
+    Sys_storage h' (List.map go children)
   | Sys_control comp =>
     match comp with
     | Call f => Sys_control (call f)
@@ -836,26 +843,505 @@ Definition prepare_step (call : fn -> itree []) : system -> system :=
 
 Definition step call sys := prepare_step call (do_step sys).
 
-Definition cycle : itree [].
+Definition add_branch : itree [reg int; reg int; reg int; int].
 Proof.
-  refine (
-  Unanswered (Read_reg (Val PC))
+  (* add rd rs1 rs2 *)
+  (* rd ← (rs1) + (rs2) *)
+  refine(
+  Unanswered (Read_reg (Var (Var_tl Var_hd)))
     (Br_cont
-      (Unanswered (Decode (Var Var_hd))
-        (Br_dec
-          (Unanswered (Vote (Var Var_hd))
-            (Br_cont (Call Cycle))
+      (Unanswered (Read_reg (Var (Var_tl (Var_tl Var_hd))))
+        (Br_cont
+          (Unanswered (Bop Bop_add (Var (Var_tl Var_hd)) (Var Var_hd))
+            (Br_cont _)
           )
-          _ _ _ _ _ _ _
         )
       )
     )
   ).
-  - (* add *) admit.
-  - (* addi *) admit.
-  - (* ld *) admit.
-  - (* st *) admit.
-  - (* beq *) admit.
-  - (* blt *) admit.
-  - (* halt *) admit.
-Admitted.
+  refine (
+  Unanswered (Write_reg (Var _) (Var Var_hd))
+    (Br_cont _)
+  ); [do 5 apply Var_tl; exact Var_hd |].
+  refine(
+  Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+    (Br_cont (Call (Cycle (Var Var_hd))))
+  ).
+  repeat match goal with
+  | |- var (int :: []) int => exact Var_hd
+  | _ => apply Var_tl
+  end.
+Defined.
+
+Definition addi_branch : itree [int; reg int; reg int; int].
+Proof.
+  (* addi rd rs1 imm *)
+  (* rd ← (rs1) + imm *)
+  refine(
+  Unanswered (Read_reg (Var (Var_tl Var_hd)))
+    (Br_cont
+      (Unanswered (Bop Bop_add (Var (Var_tl Var_hd)) (Var Var_hd))
+        (Br_cont
+          (Unanswered (Write_reg (Var _) (Var Var_hd))
+            (Br_cont _)
+          )
+        )
+      )
+    )
+  ); [do 4 apply Var_tl; exact Var_hd |].
+  refine(
+  Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+    (Br_cont (Call (Cycle (Var Var_hd))))
+  ).
+  repeat match goal with
+  | |- var (int :: []) int => exact Var_hd
+  | _ => apply Var_tl
+  end.
+Defined.
+
+Definition ld_branch : itree [reg int; int; reg int; int].
+Proof.
+  (* ld rd imm(rs1) *)
+  (* rd ← M[(rs1) + imm] *)
+  refine(
+  Unanswered (Read_reg (Var Var_hd))
+    (Br_cont
+      (Unanswered (Bop Bop_add (Var (Var_tl (Var_tl Var_hd))) (Var Var_hd))
+        (Br_cont
+          (Unanswered (Read_mem (Var _) Dmem)
+            (Br_cont
+              (Unanswered (Write_reg (Var _) (Var Var_hd))
+                (Br_cont _)
+              )
+            )
+          )
+        )
+      )
+    )
+  ); [exact Var_hd | do 5 apply Var_tl; exact Var_hd |].
+  refine(
+  Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+    (Br_cont (Call (Cycle (Var Var_hd))))
+  ).
+  repeat match goal with
+  | |- var (int :: []) int => exact Var_hd
+  | _ => apply Var_tl
+  end.
+Defined.
+
+Definition st_branch : itree [reg int; reg int; int; int].
+Proof.
+  (* st imm(rs1) rs2 *)
+  (* M[(rs1) + imm] ← (rs2) *)
+  refine(
+  Unanswered (Read_reg (Var Var_hd)) (* rs2 *)
+    (Br_cont
+      (Unanswered (Read_reg (Var (Var_tl (Var_tl Var_hd)))) (* rs1 *)
+        (Br_cont
+          (Unanswered
+            (Bop Bop_add
+              (Var Var_hd) (* rs1 *)
+              (Var (Var_tl (Var_tl (Var_tl (Var_tl Var_hd)))))) (* imm *)
+            (Br_cont
+              (Unanswered (Write_mem (Var Var_hd) Dmem (Var (Var_tl (Var_tl Var_hd))))
+                (Br_cont _)
+              )
+            )
+          )
+        )
+      )
+    )
+  ).
+  refine(
+  Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+    (Br_cont (Call (Cycle (Var Var_hd))))
+  );
+  repeat match goal with
+  | |- var (int :: []) int => exact Var_hd
+  | _ => apply Var_tl
+  end.
+Defined.
+
+Definition beq_branch : itree [int; reg int; reg int; int].
+Proof.
+  (* beq rs1 rs2 imm *)
+  (* (pc') = if (rs1) = (rs2) then (pc) + imm else (pc) + 1 *)
+  refine(
+  Unanswered (Read_reg (Var (Var_tl Var_hd))) (* rs2 *)
+    (Br_cont
+      (Unanswered (Read_reg (Var (Var_tl (Var_tl (Var_tl Var_hd))))) (* rs1 *)
+        (Br_cont
+          (Unanswered
+            (Bop Bop_eqb
+              (Var Var_hd) (* rs1 *)
+              (Var (Var_tl Var_hd))) (* rs2 *)
+            (Br_if
+              (Unanswered
+                (Bop Bop_add (Var _) (Var (Var_tl (Var_tl Var_hd))))
+                (Br_cont (Call (Cycle (Var Var_hd))))
+              )
+              (Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+                (Br_cont (Call (Cycle (Var Var_hd))))
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+  repeat match goal with
+  | |- var (int :: []) int => exact Var_hd
+  | _ => apply Var_tl
+  end.
+Defined.
+
+Definition blt_branch : itree [int; reg int; reg int; int].
+Proof.
+  (* blt rs1 rs2 imm *)
+  (* (pc') = if (rs1) < (rs2) then (pc) + imm else (pc) + 1 *)
+  refine(
+  Unanswered (Read_reg (Var (Var_tl Var_hd))) (* rs2 *)
+    (Br_cont
+      (Unanswered (Read_reg (Var (Var_tl (Var_tl (Var_tl Var_hd))))) (* rs1 *)
+        (Br_cont
+          (Unanswered
+            (Bop Bop_ltb
+              (Var Var_hd) (* rs1 *)
+              (Var (Var_tl Var_hd))) (* rs2 *)
+            (Br_if
+              (Unanswered
+                (Bop Bop_add (Var _) (Var (Var_tl (Var_tl Var_hd))))
+                (Br_cont (Call (Cycle (Var Var_hd))))
+              )
+              (Unanswered (Bop Bop_add (Var _) (Val 1%Z))
+                (Br_cont (Call (Cycle (Var Var_hd))))
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+  repeat match goal with
+  | |- var (int :: []) int => exact Var_hd
+  | _ => apply Var_tl
+  end.
+Defined.
+
+Definition cycle tgt : itree [] :=
+  Eval cbv in
+  let br :=
+    Br_cont
+      (Unanswered (Decode (Val tgt))
+        (Br_dec
+          (Unanswered (Vote (Val tgt))
+            (Br_cont (Call (Cycle (Val tgt))))
+          )
+          add_branch
+          addi_branch
+          ld_branch
+          st_branch
+          beq_branch
+          blt_branch
+          Halt
+        )
+      )
+  in
+  answer_branch _ _ br tgt.
+
+Definition pc_h (init : int) : handler.
+Proof.
+  refine (
+  {|
+    h_ty := int;
+    h_state := init;
+    h_step := _;
+    h_ans := None;
+  |}).
+  intros A que.
+  refine (
+    match que with
+    | Read_reg r => _
+    | Write_reg r data => _
+    | _ => None
+    end
+  ).
+  - des_val r.
+    exact (
+    match r in reg T return option (_ * (_ -> _ * T)) with
+    | PC => Some (Halt, fun i => (i, i))
+    | _ => None
+    end%Z).
+  - des_val r; des_val data.
+    refine (
+    match r in reg T return T -> option (_ * (_ -> _ * unit)) with
+    | PC => fun data => _
+    | _ => fun _ => None
+    end data).
+    exact (Some (Halt, fun s => (data, tt))%Z).
+Defined.
+
+Definition reg_h (init : map int) : handler.
+Proof.
+  refine (
+  {|
+    h_ty := map int;
+    h_state := init;
+    h_step := _;
+    h_ans := None;
+  |}).
+  intros A que.
+  refine (
+    match que with
+    | Read_reg r => _
+    | Write_reg r data => _
+    | _ => None
+    end
+  ).
+  - des_val r.
+    exact (
+    match r in reg T return option (_ * (_ -> _ * T)) with
+    | Rzero => Some (Halt, fun s => (s, 0))
+    | Rint a => Some (Halt, fun s => (s, match read a s with
+                                         | None => 0
+                                         | Some v => v
+                                         end))
+    | PC => None
+    end%Z).
+  - des_val r; des_val data.
+    refine (
+    match r in reg T return T -> option (_ * (_ -> _ * unit)) with
+    | Rint a => fun data => _
+    | _ => fun _ => None
+    end data).
+    exact (Some (Halt, fun s => (update a data s, tt))%Z).
+Defined.
+
+Definition dmem_h (init : map int) : handler.
+Proof.
+  refine(
+  {|
+    h_ty := map int;
+    h_state := init;
+    h_step := _;
+    h_ans := None;
+  |}).
+  intros A que.
+  refine (
+    match que with
+    | Read_mem addr m => _
+    | Write_mem addr m data => _
+    | _ => None
+    end
+  ).
+  - des_val addr.
+    exact (
+    match m in mem T return option (_ * (_ -> _ * T)) with
+    | Dmem => Some (Halt, fun s => (s, match read addr s with
+                                       | None => 0
+                                       | Some v => v
+                                       end))
+    | _ => None
+    end%Z).
+  - des_val addr; des_val data.
+    refine (
+    match m in mem T return T -> option (_ * (_ -> _ * unit)) with
+    | Dmem => fun data => _
+    | _ => fun _ => None
+    end data).
+    exact (Some (Halt, fun s => (update addr data s, tt))%Z).
+Defined.
+
+Definition imem_h (init : map inst) : handler.
+Proof.
+  refine (
+  {|
+    h_ty := map inst;
+    h_state := init;
+    h_step := _;
+    h_ans := None;
+  |}).
+  intros A que.
+  refine (
+    match que with
+    | Read_mem addr m => _
+    | _ => None
+    end
+  ).
+  des_val addr.
+  exact (
+  match m in mem T return option (_ * (_ -> _ * T)) with
+  | Imem => Some (Halt, fun s => (s, match read addr s with
+                                     | None => Inst_halt
+                                     | Some i => i
+                                     end))
+  | _ => None
+  end).
+Defined.
+
+Definition bop_h : handler.
+Proof.
+  refine (
+  {|
+    h_ty := unit;
+    h_state := tt;
+    h_step := _;
+    h_ans := None;
+  |}).
+  intros A que.
+  refine (
+    match que with
+    | Bop op lop rop => _
+    | _ => None
+    end
+  ).
+  des_val lop; des_val rop.
+  exact (
+    match op in bop A B C return A -> B -> option (_ * (_ -> _ * C)) with
+    | Bop_add => fun lop rop => Some (Halt, fun _ => (tt, lop + rop))
+    | Bop_eqb => fun lop rop => Some (Halt, fun _ => (tt, lop =? rop))
+    | Bop_ltb => fun lop rop => Some (Halt, fun _ => (tt, lop <? rop))
+    end%Z lop rop
+  ).
+Defined.
+
+Definition vote_h : handler.
+Proof.
+  refine (
+  {|
+    h_ty := unit;
+    h_state := tt;
+    h_step := _;
+    h_ans := None;
+  |}).
+  intros A que.
+  refine (
+    match que with
+    | Vote tgt => _
+    | _ => None
+    end
+  ).
+  des_val tgt.
+  apply Some.
+  split.
+  - exact (
+    Unanswered (Read_mem (Val tgt) Imem)
+      (Br_cont
+        (Unanswered (Write_mem (Val tgt) Imem (Var Var_hd))
+          (Br_cont Halt)
+        )
+      )
+    ).
+  - exact (fun _ => (tt, tt)).
+Defined.
+
+Definition decode_h : handler.
+Proof.
+  refine (
+  {|
+    h_ty := option (int * inst);
+    h_state := None;
+    h_step := _;
+    h_ans := None;
+  |}).
+  intros A que.
+  refine (
+    match que with
+    | Write_mem addr m data => _
+    | Decode tgt => _
+    | _ => None
+    end
+  ).
+  - des_val addr; des_val data.
+    exact (
+    match m in mem T return T -> option (_ * (_ -> _ * unit)) with
+    | Imem => fun i => Some (Halt, fun _ => (Some (addr, i), tt))
+    | _ => fun _ => None
+    end data).
+  - des_val tgt.
+    apply Some.
+    split; [exact Halt|].
+    exact (fun s => (s, match s with
+                        | Some (addr, i) =>
+                          if addr =? tgt then Some i else None
+                        | None => None
+                        end)%Z).
+Defined.
+
+Module Example.
+
+Local Open Scope Z_scope.
+
+Definition dmem iter_num : map int :=
+  let i := Z.of_nat iter_num in
+  let fix go acc n :=
+    match n with
+    | O => acc
+    | S n' =>
+      let z := Z.of_nat n' in
+      let acc := update (z + 2 * i) (1 + z + i) acc in
+      let acc := update z (1 + z) acc in
+      go acc n'
+    end
+  in
+  go empty iter_num.
+
+(* PRE : (R2) = loop iter *)
+Definition imem iter_num : map inst :=
+  let i := Z.of_nat iter_num in
+  let imem : map inst := empty in
+  let imem := update 0 (Inst_ld (Rint 3) 0 (Rint 1)) imem in
+  let imem := update 1 (Inst_add (Rint 3) (Rint 3) (Rint 3)) imem in
+  let imem := update 2 (Inst_st i (Rint 1) (Rint 3)) imem in
+  let imem := update 3 (Inst_addi (Rint 1) (Rint 1) 1) imem in
+  let imem := update 4 (Inst_addi (Rint 2) (Rint 2) (-1)) imem in
+  let imem := update 5 (Inst_blt Rzero (Rint 2) (-5)) imem in
+  let imem := update 6 Inst_halt imem in
+  imem.
+
+Definition thread base iter_num : system :=
+  let i := Z.of_nat iter_num in
+  let b := Z.of_nat base in
+  let regfile : map int := empty in
+  let regfile := update 1 b regfile in
+  let regfile := update 2 i regfile in
+  let regfile := update 3 0 regfile in
+  let thread := Sys_control (cycle 0) in
+  let thread := Sys_storage (reg_h regfile) [thread] in
+  let thread := Sys_storage (pc_h 0) [thread] in
+  let thread := Sys_storage bop_h [thread] in
+  thread.
+
+Definition gpu :=
+  let iter_num := 10%nat in
+  let gpu :=
+    Sys_storage vote_h [thread 0 iter_num; thread (2 * iter_num) 10]%nat in
+  let gpu := Sys_storage decode_h [gpu] in
+  let gpu := Sys_storage (dmem_h (dmem iter_num)) [gpu] in
+  let gpu := Sys_storage (imem_h (imem iter_num)) [gpu] in
+  gpu.
+
+Notation "⟪ st & ans ⟫" :=
+  {| h_ty := _; h_state := st; h_step := _; h_ans := ans |}
+  (only printing).
+
+(*Notation "⋯" := (Sys_control _) (only printing).*)
+
+Definition call (f : fn []) : itree [] :=
+  match f with
+  | Cycle tgt => destruct_value _ tgt (fun x => empty_var x) cycle
+  end.
+
+Definition step n :=
+  let fix go acc n :=
+    match n with
+    | O => acc
+    | S n' => go (step call acc) n'
+    end
+  in
+  go gpu n.
+
+Compute step 810.
+
+End Example.
+
