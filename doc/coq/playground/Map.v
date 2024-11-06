@@ -161,6 +161,28 @@ Definition update {V} (k : Z) (v : V) (m : map V) : map V :=
     |}
   end.
 
+Notation "'⟶₀' l v '⟶₁' r" :=
+  (PNodeM (Some l) v (Some r)) (at level 200, only printing,
+  format "'[v' '[' '⟶₀' l ']' '/' '[' v ']' '/' '[' '⟶₁' r ']' ']'").
+Notation "'⟶₀' l v" :=
+  (PNodeM (Some l) v None) (at level 200, only printing,
+  format "'[v' '[' '⟶₀' l ']' '/' '[' v ']' ']'").
+Notation "v '⟶₁' r" :=
+  (PNodeM None v (Some r)) (at level 200, only printing,
+  format "'[v' '[' v ']' '/' '[' '⟶₁' r ']' ']'").
+Notation "v" :=
+  (PNodeM None v None) (at level 200, only printing,
+  format "'[v' '[' v ']' ']'").
+Notation "'⟶₀' l '⟶₁' r" :=
+  (PNode0 l (Some r)) (at level 200, only printing,
+  format "'[v' '[' '⟶₀' l ']' '/' '[' '⟶₁' r ']' ']'").
+Notation "'⟶₀' l" :=
+  (PNode0 l None) (at level 200, only printing,
+  format "'[v' '[' '⟶₀' l ']' ']'").
+Notation "'⟶₁' r" :=
+  (PNode1 r) (at level 200, only printing,
+  format "'[v' '[' '⟶₁' r ']' ']'").
+
 Module LMap.
 Inductive tm :=
   | Var (x : positive)
