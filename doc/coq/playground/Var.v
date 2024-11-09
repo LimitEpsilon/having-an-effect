@@ -162,3 +162,20 @@ Fixpoint id_filter γ : {σ & filter γ σ γ} :=
       (Filter_cons_none τ τl tl τl FILTER)
   end.
 
+Definition app_filter {γ1 σ1 γ1' γ2 σ2 γ2'}
+  (FILTER1 : filter γ1 σ1 γ1') (FILTER2 : filter γ2 σ2 γ2')
+  : filter (γ1 ++ γ2) (σ1 ++ σ2) (γ1' ++ γ2') :=
+  let fix app γ σ γ' FILTER :=
+    match FILTER
+    in filter γ σ γ'
+    return filter (γ ++ γ2) (σ ++ σ2) (γ' ++ γ2')
+    with
+    | Filter_nil => FILTER2
+    | Filter_cons_some A a γ_tl σ_tl γ'_tl FILTER_tl =>
+      Filter_cons_some A a _ _ _ (app γ_tl σ_tl γ'_tl FILTER_tl)
+    | Filter_cons_none A γ_tl σ_tl γ'_tl FILTER_tl =>
+      Filter_cons_none A _ _ _ (app γ_tl σ_tl γ'_tl FILTER_tl)
+    end
+  in
+  app γ1 σ1 γ1' FILTER1.
+

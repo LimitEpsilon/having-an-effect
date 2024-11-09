@@ -367,7 +367,7 @@ Definition answer_branch A γ : branch itree γ A -> A -> itree γ :=
 .
 
 Variant answer {h_ty A} :=
-  | Ans_done (a : A)
+  | Ans_done (ans : A)
   | Ans_calc (comp : itree []) (upd : h_ty -> h_ty * A)
 .
 
@@ -1202,12 +1202,16 @@ Proof.
                         end)%Z).
 Defined.
 
-Module Example.
+Module GPU.
 
 Local Open Scope Z_scope.
 
-Definition dmem iter_num : map int :=
-  let i := Z.of_nat iter_num in
+(* initializes the data memory *)
+(* let addr := [0, len) *)
+(* let vec := [1, 2, ⋯, len] *)
+(* addr ↦ vec; (addr + 2 × len) ↦ (vec + len) *)
+Definition dmem len : map int :=
+  let i := Z.of_nat len in
   let fix go acc n :=
     match n with
     | O => acc
@@ -1218,11 +1222,14 @@ Definition dmem iter_num : map int :=
       go acc n'
     end
   in
-  go empty iter_num.
+  go empty len.
 
-(* PRE : (R2) = loop iter *)
-Definition imem iter_num : map inst :=
-  let i := Z.of_nat iter_num in
+(* initializes the instruction memory *)
+(* PRE : (R1) = base addr for vector v *)
+(* PRE : (R2) = len *)
+(* POST : base + len points to 2v *)
+Definition imem len : map inst :=
+  let i := Z.of_nat len in
   let imem : map inst := empty in
   let imem := update 0 (Inst_ld (Rint 3) 0 (Rint 1)) imem in
   let imem := update 1 (Inst_add (Rint 3) (Rint 3) (Rint 3)) imem in
@@ -1233,8 +1240,9 @@ Definition imem iter_num : map inst :=
   let imem := update 6 Inst_halt imem in
   imem.
 
-Definition thread base iter_num : system :=
-  let i := Z.of_nat iter_num in
+(* initializes the register file to meet the preconditions *)
+Definition thread base len : system :=
+  let i := Z.of_nat len in
   let b := Z.of_nat base in
   let regfile : map int := empty in
   let regfile := update 1 b regfile in
@@ -1242,20 +1250,19 @@ Definition thread base iter_num : system :=
   let regfile := update 3 0 regfile in
   let thread := Sys_control (cycle (Val 0)) in
   let thread := Sys_storage (reg_h regfile) [thread] in
-  let thread := Sys_storage bop_h [thread] in
   thread.
 
-Definition gpu :=
-  let iter_num := 10%nat in
+Definition gpu len :=
   let gpu :=
-    Sys_storage vote_h [thread 0 iter_num; thread (2 * iter_num) iter_num]%nat in
+    Sys_storage vote_h [thread 0 len; thread (2 * len) len]%nat in
+  let gpu := Sys_storage bop_h [gpu] in
   let gpu := Sys_storage decode_h [gpu] in
-  let gpu := Sys_storage (dmem_h (dmem iter_num)) [gpu] in
-  let gpu := Sys_storage (imem_h (imem iter_num)) [gpu] in
+  let gpu := Sys_storage (dmem_h (dmem len)) [gpu] in
+  let gpu := Sys_storage (imem_h (imem len)) [gpu] in
   gpu.
 
-Notation "⟪ st & ans ⟫" :=
-  {| h_ty := _; h_state := st; h_step := _; h_ans := ans |}
+Notation "⟪ ty & st & ans ⟫" :=
+  {| h_ty := ty; h_state := st; h_step := _; h_ans := ans |}
   (only printing).
 
 (*Notation "⋯" := (Sys_control _) (only printing).*)
@@ -1265,16 +1272,16 @@ Definition call γ (f : fn γ) : itree γ :=
   | Cycle tgt => cycle tgt
   end.
 
-Definition step n :=
+Definition step sys n :=
   let fix go acc n :=
     match n with
     | O => acc
     | S n' => go (step call acc) n'
     end
   in
-  go gpu n.
+  go sys n.
 
-Compute step 810.
+Compute step (gpu 10) 850.
 
-End Example.
+End GPU.
 
