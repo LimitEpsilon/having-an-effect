@@ -199,7 +199,7 @@ Definition covers {P} A (branch : @cover P A) :=
     in
     go branch.
 
-Inductive itree {eff : tyenv -> Type -> Type} {γ : tyenv} : Type :=
+Inductive itree {eff : tyenv -> Type -> Type} {γ : tyenv} : Type@{itree_u} :=
   | Halt
   | Vis {A}
     (e : eff γ A)

@@ -828,32 +828,57 @@ Definition prepare_step (call : forall {γ}, fn γ -> itree γ) : system -> syst
 
 Definition step call sys := prepare_step call (do_step sys).
 
+Ltac shift x := repeat (try solve [exact x]; apply shift_value).
+
+Local Ltac intro_var_worker γ n x :=
+  match γ with
+  | ?A :: ?γ =>
+    match n with
+    | O => refine (_ (Var Var_hd : value (A :: γ) A)); intro x
+    | S ?n => intro_var_worker γ n x
+    end
+  | _ => fail "Type environment is not in cons format"
+  end.
+
+Ltac intro_var n x :=
+  match goal with
+  | |- itree ?γ => intro_var_worker γ n x
+  | _ => fail "Goal is not itree"
+  end.
+
 Definition add_branch {γ} (tgt : value γ int)
   : itree ([reg int; reg int; reg int] ++ γ).
 Proof.
   (* add rd rs1 rs2 *)
   (* rd ← (rs1) + (rs2) *)
-  refine(
-  Unanswered (Read_reg (Var (Var_tl Var_hd)))
-    (Br_cont
-      (Unanswered (Read_reg (Var (Var_tl (Var_tl Var_hd))))
-        (Br_cont
-          (Unanswered (Bop Bop_add (Var (Var_tl Var_hd)) (Var Var_hd))
-            (Br_cont _)
-          )
-        )
-      )
-    )
-  ).
-  refine (
-  Unanswered (Write_reg (Var _) (Var Var_hd))
-    (Br_cont _)
-  ); [do 5 apply Var_tl; exact Var_hd |].
-  refine(
-  Unanswered (Bop Bop_add _ (Val 1%Z))
-    (Br_cont (Call (Cycle (Var Var_hd))))
-  ).
-  repeat (apply shift_value; try assumption).
+  cbn.
+  intro_var 2 rd.
+  intro_var 1 rs1.
+  intro_var 0 rs2.
+  refine (Unanswered (Read_reg _) _).
+  shift rs1.
+  apply Br_cont.
+  intro_var 0 rs1_res.
+  refine (Unanswered (Read_reg _) _).
+  shift rs2.
+  apply Br_cont.
+  intro_var 0 rs2_res.
+  refine (Unanswered (Bop Bop_add _ _) _).
+  shift rs1_res.
+  shift rs2_res.
+  apply Br_cont.
+  intro_var 0 add_res.
+  refine (Unanswered (Write_reg _ _) _).
+  shift rd.
+  shift add_res.
+  apply Br_cont.
+  refine (Unanswered (Bop Bop_add _ (Val 1%Z)) _).
+  shift tgt.
+  apply Br_cont.
+  intro_var 0 tgt'.
+  apply Call.
+  apply Cycle.
+  shift tgt'.
 Defined.
 
 Definition addi_branch {γ} (tgt : value γ int)
