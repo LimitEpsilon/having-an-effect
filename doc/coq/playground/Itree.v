@@ -161,11 +161,11 @@ Section Branch.
   | Br_dec
     (none : itree γ)
     (add : itree (reg int :: reg int :: reg int :: γ))
-    (addi : itree (int :: reg int :: reg int :: γ))
+    (addi : itree (reg int :: reg int :: int :: γ))
     (ld : itree (reg int :: int :: reg int :: γ))
-    (st : itree (reg int :: reg int :: int :: γ))
-    (beq : itree (int :: reg int :: reg int :: γ))
-    (blt : itree (int :: reg int :: reg int :: γ))
+    (st : itree (int :: reg int :: reg int :: γ))
+    (beq : itree (reg int :: reg int :: int :: γ))
+    (blt : itree (reg int :: reg int :: int :: γ))
     (halt : itree γ)
     : branch (option inst)
   .
@@ -323,11 +323,11 @@ Defined.
 Definition answer_br_dec γ σ γ' (FILTER : filter γ σ γ')
   (none : itree γ)
   (add : itree (reg int :: reg int :: reg int :: γ))
-  (addi : itree (int :: reg int :: reg int :: γ))
+  (addi : itree (reg int :: reg int :: int :: γ))
   (ld : itree (reg int :: int :: reg int :: γ))
-  (st : itree (reg int :: reg int :: int :: γ))
-  (beq : itree (int :: reg int :: reg int :: γ))
-  (blt : itree (int :: reg int :: reg int :: γ))
+  (st : itree (int :: reg int :: reg int :: γ))
+  (beq : itree (reg int :: reg int :: int :: γ))
+  (blt : itree (reg int :: reg int :: int :: γ))
   (halt : itree γ)
   : option inst -> itree γ'.
 Proof.
@@ -335,17 +335,17 @@ Proof.
   match ans with
   | None => assign_itree γ σ γ' _ none
   | Some (Inst_add rd rs1 rs2) =>
-    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rs2) :: ∃? _ (Some rs1) :: ∃? _ (Some rd) :: σ) γ' _ add
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rd) :: ∃? _ (Some rs1) :: ∃? _ (Some rs2) :: σ) γ' _ add
   | Some (Inst_addi rd rs1 imm) =>
-    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some imm) :: ∃? _ (Some rs1) :: ∃? _ (Some rd) :: σ) γ' _ addi
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rd) :: ∃? _ (Some rs1) :: ∃? _ (Some imm) :: σ) γ' _ addi
   | Some (Inst_ld rd imm rs1) =>
-    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rs1) :: ∃? _ (Some imm) :: ∃? _ (Some rd) :: σ) γ' _ ld
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rd) :: ∃? _ (Some imm) :: ∃? _ (Some rs1) :: σ) γ' _ ld
   | Some (Inst_st imm rs1 rs2) =>
-    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rs2) :: ∃? _ (Some rs1) :: ∃? _ (Some imm) :: σ) γ' _ st
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some imm) :: ∃? _ (Some rs1) :: ∃? _ (Some rs2) :: σ) γ' _ st
   | Some (Inst_beq rs1 rs2 imm) =>
-    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some imm) :: ∃? _ (Some rs2) :: ∃? _ (Some rs1) :: σ) γ' _ beq
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rs1) :: ∃? _ (Some rs2) :: ∃? _ (Some imm) :: σ) γ' _ beq
   | Some (Inst_blt rs1 rs2 imm) =>
-    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some imm) :: ∃? _ (Some rs2) :: ∃? _ (Some rs1) :: σ) γ' _ blt
+    assign_itree (_ :: _ :: _ :: γ) (∃? _ (Some rs1) :: ∃? _ (Some rs2) :: ∃? _ (Some imm) :: σ) γ' _ blt
   | Some Inst_halt =>
     assign_itree γ σ γ' _ halt
   end);
@@ -828,7 +828,7 @@ Definition prepare_step (call : forall {γ}, fn γ -> itree γ) : system -> syst
 
 Definition step call sys := prepare_step call (do_step sys).
 
-Ltac shift x := repeat (try solve [exact x]; apply shift_value).
+Ltac shift x := repeat (try (exact x); apply shift_value).
 
 Local Ltac intro_var_worker γ n x :=
   match γ with
@@ -852,9 +852,9 @@ Proof.
   (* add rd rs1 rs2 *)
   (* rd ← (rs1) + (rs2) *)
   cbn.
-  intro_var 2 rd.
+  intro_var 0 rd.
   intro_var 1 rs1.
-  intro_var 0 rs2.
+  intro_var 2 rs2.
   refine (Unanswered (Read_reg _) _).
   shift rs1.
   apply Br_cont.
@@ -882,27 +882,34 @@ Proof.
 Defined.
 
 Definition addi_branch {γ} (tgt : value γ int)
-  : itree ([int; reg int; reg int] ++ γ).
+  : itree ([reg int; reg int; int] ++ γ).
 Proof.
   (* addi rd rs1 imm *)
   (* rd ← (rs1) + imm *)
-  refine(
-  Unanswered (Read_reg (Var (Var_tl Var_hd)))
-    (Br_cont
-      (Unanswered (Bop Bop_add (Var (Var_tl Var_hd)) (Var Var_hd))
-        (Br_cont
-          (Unanswered (Write_reg (Var _) (Var Var_hd))
-            (Br_cont _)
-          )
-        )
-      )
-    )
-  ); [do 4 apply Var_tl; exact Var_hd |].
-  refine(
-  Unanswered (Bop Bop_add _ (Val 1%Z))
-    (Br_cont (Call (Cycle (Var Var_hd))))
-  ).
-  repeat (apply shift_value; try assumption).
+  cbn.
+  intro_var 0 rd.
+  intro_var 1 rs1.
+  intro_var 2 imm.
+  refine (Unanswered (Read_reg _) _).
+  shift rs1.
+  apply Br_cont.
+  intro_var 0 rs1_res.
+  refine (Unanswered (Bop Bop_add _ _) _).
+  shift rs1_res.
+  shift imm.
+  apply Br_cont.
+  intro_var 0 add_res.
+  refine (Unanswered (Write_reg _ _) _).
+  shift rd.
+  shift add_res.
+  apply Br_cont.
+  refine (Unanswered (Bop Bop_add _ (Val 1%Z)) _).
+  shift tgt.
+  apply Br_cont.
+  intro_var 0 tgt'.
+  apply Call.
+  apply Cycle.
+  shift tgt'.
 Defined.
 
 Definition ld_branch {γ} (tgt : value γ int)
@@ -910,120 +917,145 @@ Definition ld_branch {γ} (tgt : value γ int)
 Proof.
   (* ld rd imm(rs1) *)
   (* rd ← M[(rs1) + imm] *)
-  refine(
-  Unanswered (Read_reg (Var Var_hd))
-    (Br_cont
-      (Unanswered (Bop Bop_add (Var (Var_tl (Var_tl Var_hd))) (Var Var_hd))
-        (Br_cont
-          (Unanswered (Read_mem (Var _) Dmem)
-            (Br_cont
-              (Unanswered (Write_reg (Var _) (Var Var_hd))
-                (Br_cont _)
-              )
-            )
-          )
-        )
-      )
-    )
-  ); [exact Var_hd | do 5 apply Var_tl; exact Var_hd |].
-  refine(
-  Unanswered (Bop Bop_add _ (Val 1%Z))
-    (Br_cont (Call (Cycle (Var Var_hd))))
-  ).
-  repeat (apply shift_value; try assumption).
+  cbn.
+  intro_var 0 rd.
+  intro_var 1 imm.
+  intro_var 2 rs1.
+  refine (Unanswered (Read_reg _) _).
+  shift rs1.
+  apply Br_cont.
+  intro_var 0 rs1_res.
+  refine (Unanswered (Bop Bop_add _ _) _).
+  shift rs1_res.
+  shift imm.
+  apply Br_cont.
+  intro_var 0 add_res.
+  refine (Unanswered (Read_mem _ Dmem) _).
+  shift add_res.
+  apply Br_cont.
+  intro_var 0 read_res.
+  refine (Unanswered (Write_reg _ _) _).
+  shift rd.
+  shift read_res.
+  apply Br_cont.
+  refine (Unanswered (Bop Bop_add _ (Val 1%Z)) _).
+  shift tgt.
+  apply Br_cont.
+  intro_var 0 tgt'.
+  apply Call.
+  apply Cycle.
+  shift tgt'.
 Defined.
 
 Definition st_branch {γ} (tgt : value γ int)
-  : itree ([reg int; reg int; int] ++ γ).
+  : itree ([int; reg int; reg int] ++ γ).
 Proof.
   (* st imm(rs1) rs2 *)
   (* M[(rs1) + imm] ← (rs2) *)
-  refine(
-  Unanswered (Read_reg (Var Var_hd)) (* rs2 *)
-    (Br_cont
-      (Unanswered (Read_reg (Var (Var_tl (Var_tl Var_hd)))) (* rs1 *)
-        (Br_cont
-          (Unanswered
-            (Bop Bop_add
-              (Var Var_hd) (* rs1 *)
-              (Var (Var_tl (Var_tl (Var_tl (Var_tl Var_hd)))))) (* imm *)
-            (Br_cont
-              (Unanswered (Write_mem (Var Var_hd) Dmem (Var (Var_tl (Var_tl Var_hd))))
-                (Br_cont _)
-              )
-            )
-          )
-        )
-      )
-    )
-  ).
-  refine(
-  Unanswered (Bop Bop_add _ (Val 1%Z))
-    (Br_cont (Call (Cycle (Var Var_hd))))
-  ).
-  repeat (apply shift_value; try assumption).
+  cbn.
+  intro_var 0 imm.
+  intro_var 1 rs1.
+  intro_var 2 rs2.
+  refine (Unanswered (Read_reg _) _).
+  shift rs1.
+  apply Br_cont.
+  intro_var 0 rs1_res.
+  refine (Unanswered (Read_reg _) _).
+  shift rs2.
+  apply Br_cont.
+  intro_var 0 rs2_res.
+  refine (Unanswered (Bop Bop_add _ _) _).
+  shift rs1_res.
+  shift imm.
+  apply Br_cont.
+  intro_var 0 add_res.
+  refine (Unanswered (Write_mem _ Dmem _) _).
+  shift add_res.
+  shift rs2_res.
+  apply Br_cont.
+  refine (Unanswered (Bop Bop_add _ (Val 1%Z)) _).
+  shift tgt.
+  apply Br_cont.
+  intro_var 0 tgt'.
+  apply Call.
+  apply Cycle.
+  shift tgt'.
 Defined.
 
 Definition beq_branch {γ} (tgt : value γ int)
-  : itree ([int; reg int; reg int] ++ γ).
+  : itree ([reg int; reg int; int] ++ γ).
 Proof.
   (* beq rs1 rs2 imm *)
   (* (pc') = if (rs1) = (rs2) then (pc) + imm else (pc) + 1 *)
-  refine(
-  Unanswered (Read_reg (Var (Var_tl Var_hd))) (* rs2 *)
-    (Br_cont
-      (Unanswered (Read_reg (Var (Var_tl (Var_tl (Var_tl Var_hd))))) (* rs1 *)
-        (Br_cont
-          (Unanswered
-            (Bop Bop_eqb
-              (Var Var_hd) (* rs1 *)
-              (Var (Var_tl Var_hd))) (* rs2 *)
-            (Br_if
-              (Unanswered
-                (Bop Bop_add _ (Var (Var_tl (Var_tl Var_hd))))
-                (Br_cont (Call (Cycle (Var Var_hd))))
-              )
-              (Unanswered (Bop Bop_add _ (Val 1%Z))
-                (Br_cont (Call (Cycle (Var Var_hd))))
-              )
-            )
-          )
-        )
-      )
-    )
-  );
-  repeat (apply shift_value; try assumption).
+  cbn.
+  intro_var 0 rs1.
+  intro_var 1 rs2.
+  intro_var 2 imm.
+  refine (Unanswered (Read_reg _) _).
+  shift rs1.
+  apply Br_cont.
+  intro_var 0 rs1_res.
+  refine (Unanswered (Read_reg _) _).
+  shift rs2.
+  apply Br_cont.
+  intro_var 0 rs2_res.
+  refine (Unanswered (Bop Bop_eqb _ _) _).
+  shift rs1_res.
+  shift rs2_res.
+  apply Br_if.
+  - refine (Unanswered (Bop Bop_add _ _) _).
+    shift tgt.
+    shift imm.
+    apply Br_cont.
+    intro_var 0 tgt'.
+    apply Call.
+    apply Cycle.
+    shift tgt'.
+  - refine (Unanswered (Bop Bop_add _ (Val 1%Z)) _).
+    shift tgt.
+    apply Br_cont.
+    intro_var 0 tgt'.
+    apply Call.
+    apply Cycle.
+    shift tgt'.
 Defined.
 
 Definition blt_branch {γ} (tgt : value γ int)
-  : itree ([int; reg int; reg int] ++ γ).
+  : itree ([reg int; reg int; int] ++ γ).
 Proof.
   (* blt rs1 rs2 imm *)
   (* (pc') = if (rs1) < (rs2) then (pc) + imm else (pc) + 1 *)
-  refine(
-  Unanswered (Read_reg (Var (Var_tl Var_hd))) (* rs2 *)
-    (Br_cont
-      (Unanswered (Read_reg (Var (Var_tl (Var_tl (Var_tl Var_hd))))) (* rs1 *)
-        (Br_cont
-          (Unanswered
-            (Bop Bop_ltb
-              (Var Var_hd) (* rs1 *)
-              (Var (Var_tl Var_hd))) (* rs2 *)
-            (Br_if
-              (Unanswered
-                (Bop Bop_add _ (Var (Var_tl (Var_tl Var_hd))))
-                (Br_cont (Call (Cycle (Var Var_hd))))
-              )
-              (Unanswered (Bop Bop_add _ (Val 1%Z))
-                (Br_cont (Call (Cycle (Var Var_hd))))
-              )
-            )
-          )
-        )
-      )
-    )
-  );
-  repeat (apply shift_value; try assumption).
+  cbn.
+  intro_var 0 rs1.
+  intro_var 1 rs2.
+  intro_var 2 imm.
+  refine (Unanswered (Read_reg _) _).
+  shift rs1.
+  apply Br_cont.
+  intro_var 0 rs1_res.
+  refine (Unanswered (Read_reg _) _).
+  shift rs2.
+  apply Br_cont.
+  intro_var 0 rs2_res.
+  refine (Unanswered (Bop Bop_ltb _ _) _).
+  shift rs1_res.
+  shift rs2_res.
+  apply Br_if.
+  - refine (Unanswered (Bop Bop_add _ _) _).
+    shift tgt.
+    shift imm.
+    apply Br_cont.
+    intro_var 0 tgt'.
+    apply Call.
+    apply Cycle.
+    shift tgt'.
+  - refine (Unanswered (Bop Bop_add _ (Val 1%Z)) _).
+    shift tgt.
+    apply Br_cont.
+    intro_var 0 tgt'.
+    apply Call.
+    apply Cycle.
+    shift tgt'.
 Defined.
 
 Definition cycle {γ} (tgt : value γ int) : itree γ :=
